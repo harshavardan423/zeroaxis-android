@@ -115,8 +115,7 @@ public class EnrollmentActivity extends AppCompatActivity {
                         .build();
                 Response response = client.newCall(request).execute();
                 String body = response.body().string();
-                JSONObject data = new JSONObject(body);
-                JSONArray districtArray = data.getJSONArray("districts");
+                JSONArray districtArray = new JSONArray(body);
 
                 districts.clear();
                 List<String> districtNames = new ArrayList<>();
