@@ -185,12 +185,13 @@ public class EnrollmentActivity extends AppCompatActivity {
     
         new Thread(() -> {
             try {
-                String serial = android.os.Build.SERIAL;
-                if (serial == null || serial.equals("unknown")) {
-                    serial = android.provider.Settings.Secure.getString(
+                String rawSerial = android.os.Build.SERIAL;
+                if (rawSerial == null || rawSerial.equals("unknown")) {
+                    rawSerial = android.provider.Settings.Secure.getString(
                             getContentResolver(),
                             android.provider.Settings.Secure.ANDROID_ID);
                 }
+                final String serial = rawSerial;
     
                 // Check if already enrolled
                 Request checkRequest = new Request.Builder()
