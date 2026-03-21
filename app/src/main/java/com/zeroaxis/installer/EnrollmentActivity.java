@@ -179,22 +179,65 @@ public class EnrollmentActivity extends AppCompatActivity {
     }
 
     private void startInstall(String districtId, String blockId, String schoolId) {
-        if (!headless) {
-            enrollButton.setEnabled(false);
-            progressBar.setVisibility(View.VISIBLE);
-            statusText.setText("Registering device...");
-        }
-
-        Intent intent = new Intent(this, InstallService.class);
-        intent.putExtra("flask_url", flaskUrl);
-        intent.putExtra("district_id", districtId);
-        intent.putExtra("block_id", blockId);
-        intent.putExtra("school_id", schoolId);
-        intent.putExtra("headless", headless);
-        startService(intent);
-
-        if (!headless) {
-            statusText.setText("Installing agents, please wait...");
-        }
+        enrollButton.setEnabled(false);
+        progressBar.setVisibility(View.VISIBLE);
+        statusText.setText("Registering device...");
+    
+        new Thread(() -> {
+            try {
+                String serial = android.os.Build.SERIAL;
+                if (serial == null || serial.equals("unknown")) {
+                    serial = android.provider.Settings.Secure.getString(
+                            getContentResolver(),
+                            android.provider.Settings.Secure.ANDROID_ID);
+                }
+    
+                // Check if already enrolled
+                Request checkRequest = new Request.Builder()
+                        .url(flaskUrl + "/api/devices/check/" + serial)
+                        .build();
+                Response checkResponse = client.newCall(checkRequest).execute();
+    
+                if (checkResponse.code() == 200) {
+                    runOnUiThread(() -> statusText.setText("Device already enrolled!"));
+                    return;
+                }
+    
+                // Register device
+                org.json.JSONObject payload = new org.json.JSONObject();
+                payload.put("identifier", serial);
+                payload.put("platform", "android");
+                payload.put("name", android.os.Build.MODEL);
+                if (districtId != null) payload.put("district_id", Integer.parseInt(districtId));
+                if (blockId != null) payload.put("block_id", Integer.parseInt(blockId));
+                if (schoolId != null) payload.put("school_id", Integer.parseInt(schoolId));
+    
+                okhttp3.RequestBody body = okhttp3.RequestBody.create(
+                        payload.toString(),
+                        okhttp3.MediaType.parse("application/json"));
+    
+                Request registerRequest = new Request.Builder()
+                        .url(flaskUrl + "/api/devices/register")
+                        .post(body)
+                        .build();
+    
+                Response registerResponse = client.newCall(registerRequest).execute();
+                String responseBody = registerResponse.body().string();
+    
+                if (registerResponse.isSuccessful()) {
+                    runOnUiThread(() -> {
+                        statusText.setText("Device enrolled successfully!");
+                        progressBar.setVisibility(View.GONE);
+                    });
+                } else {
+                    runOnUiThread(() -> statusText.setText("Registration failed: " + responseBody));
+                }
+    
+            } catch (Exception e) {
+                runOnUiThread(() -> statusText.setText("Error: " + e.getMessage()));
+            }
+        }).start();
     }
+
+    
 }
