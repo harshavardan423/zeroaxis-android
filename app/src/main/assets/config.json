@@ -1,6 +1,8 @@
 {
-    "flask_url": "http://3.6.85.206",
+    "flask_url": "https://zeroaxis.live",
     "headless": false,
+    "oem": false,
     "headwind_package": "com.hmdm.launcher",
-    "rustdesk_package": "com.carriez.flutter_hbb"
+    "wireguard_package": "com.wireguard.android",
+    "vpn_tunnel_name": "ZeroAxis VPN"
 }
