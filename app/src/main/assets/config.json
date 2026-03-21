@@ -1,0 +1,6 @@
+{
+    "flask_url": "http://3.6.85.206",
+    "headless": false,
+    "headwind_package": "com.hmdm.launcher",
+    "rustdesk_package": "com.carriez.flutter_hbb"
+}

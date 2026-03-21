@@ -1,0 +1,2 @@
+rootProject.name = 'ZeroAxisInstaller'
+include ':app'
