@@ -1,6 +1,7 @@
 package com.zeroaxis.installer;
 
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.AdapterView;
@@ -13,7 +14,10 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import okhttp3.OkHttpClient;
@@ -51,7 +55,6 @@ public class EnrollmentActivity extends AppCompatActivity {
         }
 
         if (headless) {
-            // Skip UI, go straight to install
             startInstall(null, null, null);
             return;
         }
@@ -179,10 +182,12 @@ public class EnrollmentActivity extends AppCompatActivity {
     }
 
     private void startInstall(String districtId, String blockId, String schoolId) {
-        enrollButton.setEnabled(false);
-        progressBar.setVisibility(View.VISIBLE);
-        statusText.setText("Registering device...");
-    
+        if (!headless) {
+            enrollButton.setEnabled(false);
+            progressBar.setVisibility(View.VISIBLE);
+            statusText.setText("Registering device...");
+        }
+
         new Thread(() -> {
             try {
                 String rawSerial = android.os.Build.SERIAL;
@@ -192,18 +197,28 @@ public class EnrollmentActivity extends AppCompatActivity {
                             android.provider.Settings.Secure.ANDROID_ID);
                 }
                 final String serial = rawSerial;
-    
+
                 // Check if already enrolled
                 Request checkRequest = new Request.Builder()
                         .url(flaskUrl + "/api/devices/check/" + serial)
                         .build();
                 Response checkResponse = client.newCall(checkRequest).execute();
-                
+
                 if (checkResponse.code() == 200) {
-                    runOnUiThread(() -> statusText.setText("Already enrolled. ID: " + serial));
+                    runOnUiThread(() -> {
+                        statusText.setText("Already enrolled. Installing agents...");
+                        progressBar.setVisibility(View.VISIBLE);
+                    });
+                    installAgentWithPrompt("headwind-agent.apk");
+                    Thread.sleep(3000);
+                    installAgentWithPrompt("rustdesk-agent.apk");
+                    runOnUiThread(() -> {
+                        statusText.setText("Setup complete!");
+                        progressBar.setVisibility(View.GONE);
+                    });
                     return;
                 }
-    
+
                 // Register device
                 org.json.JSONObject payload = new org.json.JSONObject();
                 payload.put("serial", serial);
@@ -212,33 +227,79 @@ public class EnrollmentActivity extends AppCompatActivity {
                 if (districtId != null) payload.put("district_id", Integer.parseInt(districtId));
                 if (blockId != null) payload.put("block_id", Integer.parseInt(blockId));
                 if (schoolId != null) payload.put("school_id", Integer.parseInt(schoolId));
-    
+
                 okhttp3.RequestBody body = okhttp3.RequestBody.create(
                         payload.toString(),
                         okhttp3.MediaType.parse("application/json"));
-    
+
                 Request registerRequest = new Request.Builder()
                         .url(flaskUrl + "/api/devices/register")
                         .post(body)
                         .build();
-    
+
                 Response registerResponse = client.newCall(registerRequest).execute();
                 String responseBody = registerResponse.body().string();
-    
+
                 if (registerResponse.isSuccessful()) {
+                    runOnUiThread(() -> statusText.setText("Device enrolled! Installing agents..."));
+                    installAgentWithPrompt("headwind-agent.apk");
+                    Thread.sleep(3000);
+                    installAgentWithPrompt("rustdesk-agent.apk");
                     runOnUiThread(() -> {
-                        statusText.setText("Device enrolled successfully!");
+                        statusText.setText("Setup complete!");
                         progressBar.setVisibility(View.GONE);
                     });
                 } else {
                     runOnUiThread(() -> statusText.setText("Registration failed: " + responseBody));
                 }
-    
+
             } catch (Exception e) {
                 runOnUiThread(() -> statusText.setText("Error: " + e.getMessage()));
             }
         }).start();
     }
 
-    
+    private void installAgentWithPrompt(String assetName) {
+        try {
+            // Copy APK from assets to internal storage
+            InputStream in = getAssets().open(assetName);
+            File outFile = new File(getFilesDir(), assetName);
+            OutputStream out = new FileOutputStream(outFile);
+            byte[] buffer = new byte[4096];
+            int read;
+            while ((read = in.read(buffer)) != -1) {
+                out.write(buffer, 0, read);
+            }
+            in.close();
+            out.close();
+
+            // Try root silent install first
+            boolean rootSuccess = false;
+            try {
+                Process process = Runtime.getRuntime().exec("su");
+                OutputStream os = process.getOutputStream();
+                os.write(("pm install -r " + outFile.getAbsolutePath() + "\n").getBytes());
+                os.write("exit\n".getBytes());
+                os.flush();
+                int exitCode = process.waitFor();
+                rootSuccess = (exitCode == 0);
+            } catch (Exception e) {
+                rootSuccess = false;
+            }
+
+            // Fall back to user prompt if root failed
+            if (!rootSuccess) {
+                Uri apkUri = androidx.core.content.FileProvider.getUriForFile(
+                        this, "com.zeroaxis.installer.fileprovider", outFile);
+                Intent installIntent = new Intent(Intent.ACTION_VIEW);
+                installIntent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+                installIntent.setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        | Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(installIntent);
+            }
+
+        } catch (Exception e) {
+            runOnUiThread(() -> statusText.setText("Install error: " + e.getMessage()));
+        }
+    }
 }
