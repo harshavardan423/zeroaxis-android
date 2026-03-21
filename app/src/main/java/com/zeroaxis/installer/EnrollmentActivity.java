@@ -197,9 +197,9 @@ public class EnrollmentActivity extends AppCompatActivity {
                         .url(flaskUrl + "/api/devices/check/" + serial)
                         .build();
                 Response checkResponse = client.newCall(checkRequest).execute();
-    
+                
                 if (checkResponse.code() == 200) {
-                    runOnUiThread(() -> statusText.setText("Device already enrolled!"));
+                    runOnUiThread(() -> statusText.setText("Already enrolled. ID: " + serial));
                     return;
                 }
     
