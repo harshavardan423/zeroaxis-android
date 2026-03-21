@@ -39,11 +39,19 @@ public class EnrollmentActivity extends AppCompatActivity {
     private TextView statusText;
 
     private List<JSONObject> districts = new ArrayList<>();
-    private List<JSONObject> blocks = new ArrayList<>();
-    private List<JSONObject> schools = new ArrayList<>();
+    private List<JSONObject> blocks    = new ArrayList<>();
+    private List<JSONObject> schools   = new ArrayList<>();
     private OkHttpClient client = new OkHttpClient();
-
     private Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    // Tracks which install step we're on (0 = not started)
+    private int currentStep = 0;
+    // Steps: 1=WireGuard APK, 2=VPN import, 3=Headwind APK, 4=ADB instructions
+    private static final int STEP_WIREGUARD_APK = 1;
+    private static final int STEP_VPN_IMPORT    = 2;
+    private static final int STEP_HEADWIND_APK  = 3;
+    private static final int STEP_ADB           = 4;
+    private static final int STEP_DONE          = 5;
 
     // ─── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -51,7 +59,6 @@ public class EnrollmentActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Load config.json from assets
         try {
             InputStream is = getAssets().open("config.json");
             byte[] buffer = new byte[is.available()];
@@ -99,23 +106,30 @@ public class EnrollmentActivity extends AppCompatActivity {
             @Override public void onNothingSelected(AdapterView<?> p) {}
         });
 
+        // Enroll button — first tap registers device and starts step flow
         enrollButton.setOnClickListener(v -> {
-            int dPos = districtSpinner.getSelectedItemPosition();
-            int bPos = blockSpinner.getSelectedItemPosition();
-            int sPos = schoolSpinner.getSelectedItemPosition();
+            if (currentStep == 0) {
+                // First tap — validate and register
+                int dPos = districtSpinner.getSelectedItemPosition();
+                int bPos = blockSpinner.getSelectedItemPosition();
+                int sPos = schoolSpinner.getSelectedItemPosition();
 
-            if (dPos == 0 || bPos == 0 || sPos == 0) {
-                Toast.makeText(this, "Please select District, Block and School", Toast.LENGTH_SHORT).show();
-                return;
-            }
+                if (dPos == 0 || bPos == 0 || sPos == 0) {
+                    Toast.makeText(this, "Please select District, Block and School", Toast.LENGTH_SHORT).show();
+                    return;
+                }
 
-            try {
-                String districtId = districts.get(dPos - 1).getString("id");
-                String blockId    = blocks.get(bPos - 1).getString("id");
-                String schoolId   = schools.get(sPos - 1).getString("id");
-                startInstall(districtId, blockId, schoolId);
-            } catch (Exception e) {
-                Toast.makeText(this, "Error reading selection", Toast.LENGTH_SHORT).show();
+                try {
+                    String districtId = districts.get(dPos - 1).getString("id");
+                    String blockId    = blocks.get(bPos - 1).getString("id");
+                    String schoolId   = schools.get(sPos - 1).getString("id");
+                    registerAndBegin(districtId, blockId, schoolId);
+                } catch (Exception e) {
+                    Toast.makeText(this, "Error reading selection", Toast.LENGTH_SHORT).show();
+                }
+            } else {
+                // Subsequent taps — advance to next step
+                advanceStep();
             }
         });
     }
@@ -126,9 +140,7 @@ public class EnrollmentActivity extends AppCompatActivity {
         statusText.setText("Loading...");
         new Thread(() -> {
             try {
-                Request request = new Request.Builder()
-                        .url(flaskUrl + "/api/groups")
-                        .build();
+                Request request = new Request.Builder().url(flaskUrl + "/api/groups").build();
                 Response response = client.newCall(request).execute();
                 String body = response.body().string();
                 JSONArray districtArray = new JSONArray(body);
@@ -190,18 +202,20 @@ public class EnrollmentActivity extends AppCompatActivity {
         } catch (Exception e) { e.printStackTrace(); }
     }
 
-    // ─── Main install flow ───────────────────────────────────────────────────
+    // ─── Registration ─────────────────────────────────────────────────────────
 
-    private void startInstall(String districtId, String blockId, String schoolId) {
-        if (!headless) {
-            enrollButton.setEnabled(false);
-            progressBar.setVisibility(View.VISIBLE);
-            setStatus("Registering device...");
-        }
+    private void registerAndBegin(String districtId, String blockId, String schoolId) {
+        enrollButton.setEnabled(false);
+        progressBar.setVisibility(View.VISIBLE);
+        setStatus("Registering device...");
+
+        // Hide spinners during install flow
+        districtSpinner.setVisibility(View.GONE);
+        blockSpinner.setVisibility(View.GONE);
+        schoolSpinner.setVisibility(View.GONE);
 
         new Thread(() -> {
             try {
-                // ── 1. Resolve serial ──────────────────────────────────────
                 String rawSerial = android.os.Build.SERIAL;
                 if (rawSerial == null || rawSerial.equals("unknown")) {
                     rawSerial = android.provider.Settings.Secure.getString(
@@ -210,15 +224,13 @@ public class EnrollmentActivity extends AppCompatActivity {
                 }
                 final String serial = rawSerial;
 
-                // ── 2. Check if already enrolled ──────────────────────────
+                // Check if already enrolled
                 Request checkRequest = new Request.Builder()
-                        .url(flaskUrl + "/api/devices/check/" + serial)
-                        .build();
+                        .url(flaskUrl + "/api/devices/check/" + serial).build();
                 Response checkResponse = client.newCall(checkRequest).execute();
                 boolean alreadyEnrolled = (checkResponse.code() == 200);
 
                 if (!alreadyEnrolled) {
-                    // ── 3. Register device with Flask ─────────────────────
                     JSONObject payload = new JSONObject();
                     payload.put("serial", serial);
                     payload.put("platform", "android");
@@ -228,60 +240,113 @@ public class EnrollmentActivity extends AppCompatActivity {
                     if (schoolId != null)   payload.put("school_id",   Integer.parseInt(schoolId));
 
                     okhttp3.RequestBody body = okhttp3.RequestBody.create(
-                            payload.toString(),
-                            okhttp3.MediaType.parse("application/json"));
+                            payload.toString(), okhttp3.MediaType.parse("application/json"));
 
                     Request registerRequest = new Request.Builder()
-                            .url(flaskUrl + "/api/devices/register")
-                            .post(body)
-                            .build();
-
+                            .url(flaskUrl + "/api/devices/register").post(body).build();
                     Response registerResponse = client.newCall(registerRequest).execute();
+
                     if (!registerResponse.isSuccessful()) {
                         setStatus("Registration failed: " + registerResponse.body().string());
+                        mainHandler.post(() -> {
+                            enrollButton.setEnabled(true);
+                            progressBar.setVisibility(View.GONE);
+                        });
                         return;
                     }
                 }
 
-                // ── 4. Install WireGuard APK ───────────────────────────────
-                setStatus("Installing WireGuard...");
-                installApk("wireguard.apk");
-                // OEM: silent install is fast. Test: user sees installer UI, give them time.
-                Thread.sleep(oem ? 2000 : 8000);
-
-                // ── 5. Import VPN tunnel config ────────────────────────────
-                setStatus("Configuring VPN tunnel...");
-                importWireGuardTunnel();
-                // OEM: root copy is instant. Test: WireGuard app opens, user taps Import.
-                Thread.sleep(oem ? 1000 : 6000);
-
-                // ── 6. Install Headwind MDM agent ──────────────────────────
-                setStatus("Installing MDM agent...");
-                installApk("headwind-agent.apk");
-                Thread.sleep(oem ? 2000 : 8000);
-
-                // ── 7. Configure ADB for remote control ────────────────────
-                setStatus("Configuring remote access...");
-                configureAdb();
-
-                // ── Done ───────────────────────────────────────────────────
-                if (!headless) {
-                    mainHandler.post(() -> progressBar.setVisibility(View.GONE));
-                }
+                // Registration done — start step flow on main thread
+                mainHandler.post(() -> {
+                    currentStep = STEP_WIREGUARD_APK;
+                    progressBar.setVisibility(View.GONE);
+                    runStep(currentStep);
+                });
 
             } catch (Exception e) {
                 setStatus("Error: " + e.getMessage());
+                mainHandler.post(() -> {
+                    enrollButton.setEnabled(true);
+                    progressBar.setVisibility(View.GONE);
+                });
             }
         }).start();
     }
 
-    // ─── Step: Install APK ────────────────────────────────────────────────────
+    // ─── Step runner ──────────────────────────────────────────────────────────
 
     /**
-     * Copies an APK from assets and installs it.
-     * OEM / root: silent via `pm install -r`.
-     * Test phone: opens system installer UI (one user tap to approve).
+     * Called on the main thread. Executes the current step action, then
+     * updates the button to say "Next →" so the user can confirm and proceed.
      */
+    private void runStep(int step) {
+        switch (step) {
+
+            case STEP_WIREGUARD_APK:
+                setStatus("Step 1 of 4 — Installing WireGuard\n\nApprove the install prompt, then tap Next.");
+                enrollButton.setText("Next →");
+                enrollButton.setEnabled(true);
+                new Thread(() -> installApk("wireguard.apk")).start();
+                break;
+
+            case STEP_VPN_IMPORT:
+                setStatus("Step 2 of 4 — Importing VPN config\n\nWireGuard will open. Tap the checkmark/import button inside it, then come back and tap Next.");
+                enrollButton.setText("Next →");
+                enrollButton.setEnabled(true);
+                new Thread(() -> importWireGuardTunnel()).start();
+                break;
+
+            case STEP_HEADWIND_APK:
+                setStatus("Step 3 of 4 — Installing MDM Agent\n\nApprove the install prompt, then tap Next.");
+                enrollButton.setText("Next →");
+                enrollButton.setEnabled(true);
+                new Thread(() -> installApk("headwind-agent.apk")).start();
+                break;
+
+            case STEP_ADB:
+                if (oem) {
+                    // OEM: do it silently, no user action needed
+                    setStatus("Step 4 of 4 — Enabling remote access...");
+                    enrollButton.setEnabled(false);
+                    new Thread(() -> {
+                        configureAdbRoot();
+                        mainHandler.post(() -> {
+                            currentStep = STEP_DONE;
+                            runStep(STEP_DONE);
+                        });
+                    }).start();
+                } else {
+                    // Test phone: show instructions, let user read and tap Next
+                    setStatus("Step 4 of 4 — Enable Wireless Debugging\n\n" +
+                            "1. Open Settings → Developer Options\n" +
+                            "2. Enable Wireless Debugging\n" +
+                            "3. Enable Stay Awake\n\n" +
+                            "Then tap Done below.");
+                    enrollButton.setText("Done ✓");
+                    enrollButton.setEnabled(true);
+                }
+                break;
+
+            case STEP_DONE:
+                setStatus("✓ Device enrolled!\n✓ WireGuard VPN configured\n✓ MDM agent installed\n" +
+                        (oem ? "✓ Remote access enabled" : "✓ Enable Wireless Debugging to activate remote access"));
+                enrollButton.setText("Finish");
+                enrollButton.setEnabled(true);
+                break;
+        }
+    }
+
+    /**
+     * User tapped Next/Done/Finish — advance to the next step.
+     */
+    private void advanceStep() {
+        currentStep++;
+        if (currentStep > STEP_DONE) return;
+        runStep(currentStep);
+    }
+
+    // ─── Step: Install APK ────────────────────────────────────────────────────
+
     private void installApk(String assetName) {
         try {
             InputStream in = getAssets().open(assetName);
@@ -293,7 +358,7 @@ public class EnrollmentActivity extends AppCompatActivity {
             in.close();
             out.close();
 
-            if (tryRootInstall(outFile)) return;  // silent succeeded
+            if (tryRootInstall(outFile)) return; // silent succeeded
 
             // Fallback: system installer prompt
             Uri apkUri = androidx.core.content.FileProvider.getUriForFile(
@@ -321,13 +386,8 @@ public class EnrollmentActivity extends AppCompatActivity {
         }
     }
 
-    // ─── Step: WireGuard tunnel import ────────────────────────────────────────
+    // ─── Step: WireGuard VPN import ───────────────────────────────────────────
 
-    /**
-     * OEM / root: copies conf to /data/misc/wireguard/ and brings up the tunnel.
-     * Test phone: fires WireGuard's official IMPORT_TUNNEL Intent — user taps Import
-     *             inside the WireGuard app (one tap, no pairing code needed).
-     */
     private void importWireGuardTunnel() {
         try {
             InputStream in = getAssets().open("zeroaxis-vpn.conf");
@@ -340,7 +400,7 @@ public class EnrollmentActivity extends AppCompatActivity {
             out.close();
 
             if (oem) {
-                // Root path: write config and bring up wg interface
+                // Root path
                 Process process = Runtime.getRuntime().exec("su");
                 OutputStream os = process.getOutputStream();
                 os.write("mkdir -p /data/misc/wireguard/\n".getBytes());
@@ -351,7 +411,7 @@ public class EnrollmentActivity extends AppCompatActivity {
                 os.flush();
                 process.waitFor();
             } else {
-                // Non-OEM: WireGuard's official import Intent (requires WireGuard app installed)
+                // Official WireGuard import Intent — opens WireGuard app, user taps import
                 Uri confUri = androidx.core.content.FileProvider.getUriForFile(
                         this, "com.zeroaxis.installer.fileprovider", confFile);
                 Intent intent = new Intent("com.wireguard.android.action.IMPORT_TUNNEL");
@@ -366,43 +426,66 @@ public class EnrollmentActivity extends AppCompatActivity {
         }
     }
 
-    // ─── Step: ADB / Wireless Debugging ──────────────────────────────────────
+    // ─── Step: ADB (OEM root path) ────────────────────────────────────────────
 
-    /**
-     * OEM / root: enables ADB over TCP on port 5555 persistently via root shell.
-     *             Equivalent to having persist.adb.tcp.port=5555 in the ROM.
-     *
-     * Test phone: Android blocks enabling Wireless Debugging programmatically.
-     *             Show clear on-screen instructions instead.
-     */
-    private void configureAdb() {
-        if (oem) {
-            try {
-                Process process = Runtime.getRuntime().exec("su");
-                OutputStream os = process.getOutputStream();
-                os.write("settings put global adb_enabled 1\n".getBytes());
-                os.write("setprop service.adb.tcp.port 5555\n".getBytes());
-                os.write("setprop persist.adb.tcp.port 5555\n".getBytes());
-                os.write("stop adbd\n".getBytes());
-                os.write("start adbd\n".getBytes());
-                os.write("exit\n".getBytes());
-                os.flush();
-                process.waitFor();
-                setStatus("Setup complete! Device is ready.");
-            } catch (Exception e) {
-                setStatus("ADB setup failed: " + e.getMessage());
-            }
-        } else {
-            // Can't do this silently on stock Android — guide the user
-            setStatus(
-                "Almost done!\n\n" +
-                "One manual step for remote access:\n" +
-                "  1. Settings → Developer Options\n" +
-                "  2. Enable Wireless Debugging\n" +
-                "  3. Keep screen on (Stay Awake option)\n\n" +
-                "Everything else is configured. ✓ WireGuard VPN active ✓ MDM enrolled"
-            );
+    private void configureAdbRoot() {
+        try {
+            Process process = Runtime.getRuntime().exec("su");
+            OutputStream os = process.getOutputStream();
+            os.write("settings put global adb_enabled 1\n".getBytes());
+            os.write("setprop service.adb.tcp.port 5555\n".getBytes());
+            os.write("setprop persist.adb.tcp.port 5555\n".getBytes());
+            os.write("stop adbd\n".getBytes());
+            os.write("start adbd\n".getBytes());
+            os.write("exit\n".getBytes());
+            os.flush();
+            process.waitFor();
+        } catch (Exception e) {
+            setStatus("ADB setup failed: " + e.getMessage());
         }
+    }
+
+    // ─── Headless flow (no UI) ────────────────────────────────────────────────
+
+    private void startInstall(String districtId, String blockId, String schoolId) {
+        new Thread(() -> {
+            try {
+                String rawSerial = android.os.Build.SERIAL;
+                if (rawSerial == null || rawSerial.equals("unknown")) {
+                    rawSerial = android.provider.Settings.Secure.getString(
+                            getContentResolver(),
+                            android.provider.Settings.Secure.ANDROID_ID);
+                }
+
+                Request checkRequest = new Request.Builder()
+                        .url(flaskUrl + "/api/devices/check/" + rawSerial).build();
+                Response checkResponse = client.newCall(checkRequest).execute();
+
+                if (checkResponse.code() != 200) {
+                    JSONObject payload = new JSONObject();
+                    payload.put("serial", rawSerial);
+                    payload.put("platform", "android");
+                    payload.put("name", android.os.Build.MODEL);
+
+                    okhttp3.RequestBody body = okhttp3.RequestBody.create(
+                            payload.toString(), okhttp3.MediaType.parse("application/json"));
+                    Request registerRequest = new Request.Builder()
+                            .url(flaskUrl + "/api/devices/register").post(body).build();
+                    client.newCall(registerRequest).execute();
+                }
+
+                installApk("wireguard.apk");
+                Thread.sleep(3000);
+                importWireGuardTunnel();
+                Thread.sleep(2000);
+                installApk("headwind-agent.apk");
+                Thread.sleep(3000);
+                if (oem) configureAdbRoot();
+
+            } catch (Exception e) {
+                // Headless — nothing to show
+            }
+        }).start();
     }
 
     // ─── Utility ─────────────────────────────────────────────────────────────
