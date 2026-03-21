@@ -205,7 +205,7 @@ public class EnrollmentActivity extends AppCompatActivity {
     
                 // Register device
                 org.json.JSONObject payload = new org.json.JSONObject();
-                payload.put("identifier", serial);
+                payload.put("serial", serial);
                 payload.put("platform", "android");
                 payload.put("name", android.os.Build.MODEL);
                 if (districtId != null) payload.put("district_id", Integer.parseInt(districtId));
