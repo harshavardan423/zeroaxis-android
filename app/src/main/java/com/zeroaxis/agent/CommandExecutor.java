@@ -1,5 +1,4 @@
 package com.zeroaxis.agent;
-
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -13,19 +12,14 @@ import androidx.core.app.NotificationCompat;
 import org.json.JSONObject;
 import java.io.InputStream;
 import java.net.URL;
-
 public class CommandExecutor {
-
     private static final String CHANNEL_ID = "zeroaxis_cmd";
     private static int notifSeq = 2000;
-
     private final Context ctx;
-
     public CommandExecutor(Context ctx) {
         this.ctx = ctx;
         createChannel();
     }
-
     public void execute(String command, JSONObject payload) throws Exception {
         switch (command) {
             case "lock":
@@ -47,7 +41,6 @@ public class CommandExecutor {
                 throw new Exception("Unknown command: " + command);
         }
     }
-
     private void executeLock() {
         DevicePolicyManager dpm =
                 (DevicePolicyManager) ctx.getSystemService(Context.DEVICE_POLICY_SERVICE);
@@ -58,7 +51,6 @@ public class CommandExecutor {
             throw new RuntimeException("Device admin not active");
         }
     }
-
     private void executeMessage(String text) {
         NotificationManager nm =
                 (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -72,19 +64,18 @@ public class CommandExecutor {
                 .build();
         nm.notify(notifSeq++, notif);
     }
-
     private void executeWallpaper(String url) throws Exception {
         InputStream in = new URL(url).openStream();
         Bitmap bmp = BitmapFactory.decodeStream(in);
         in.close();
         WallpaperManager.getInstance(ctx).setBitmap(bmp);
     }
-
     private void executeUninstallApp(String packageName) throws Exception {
         if (packageName.isEmpty()) throw new Exception("No package specified");
         Process p = Runtime.getRuntime().exec(new String[]{"pm", "uninstall", packageName});
         p.waitFor();
     }
+    private void executeWipe() {
         DevicePolicyManager dpm =
                 (DevicePolicyManager) ctx.getSystemService(Context.DEVICE_POLICY_SERVICE);
         ComponentName admin = new ComponentName(ctx, ZeroAxisAdminReceiver.class);
@@ -94,7 +85,6 @@ public class CommandExecutor {
             throw new RuntimeException("Device admin not active for wipe");
         }
     }
-
     private void createChannel() {
         NotificationChannel ch = new NotificationChannel(
                 CHANNEL_ID, "ZeroAxis Commands",
