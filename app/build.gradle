@@ -3,20 +3,21 @@ plugins {
 }
 
 android {
-    namespace 'com.zeroaxis.installer'
+    namespace 'com.zeroaxis.agent'
     compileSdk 34
 
     defaultConfig {
-        applicationId 'com.zeroaxis.installer'
-        minSdk 21
+        applicationId 'com.zeroaxis.agent'
+        minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName '1.0'
+        versionCode 2
+        versionName '2.0'
     }
 
     buildTypes {
         release {
             minifyEnabled false
+            signingConfig signingConfigs.debug
         }
     }
 
@@ -30,15 +31,16 @@ android {
             assets.srcDirs = ['src/main/assets']
         }
     }
-    
+
     lint {
-    abortOnError false
+        abortOnError false
     }
 }
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.core:core:1.12.0'
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 }
