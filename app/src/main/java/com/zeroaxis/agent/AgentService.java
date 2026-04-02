@@ -6,7 +6,6 @@ import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.BatteryManager;
@@ -21,7 +20,10 @@ import androidx.core.app.NotificationCompat;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.InputStream;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -30,13 +32,13 @@ import okhttp3.Response;
 
 public class AgentService extends Service {
 
-    private static final String CHANNEL_ID   = "zeroaxis_agent";
-    private static final int    NOTIF_ID     = 1001;
-    private static final long   STATS_INTERVAL   = 15 * 60 * 1000L;  // 15 mins
-    private static final long   COMMAND_INTERVAL =  2 * 60 * 1000L;  //  2 mins
+    private static final String CHANNEL_ID       = "zeroaxis_agent";
+    private static final int    NOTIF_ID         = 1001;
+    private static final long   STATS_INTERVAL   = 15 * 60 * 1000L;
+    private static final long   COMMAND_INTERVAL =  2 * 60 * 1000L;
 
-    private OkHttpClient client = new OkHttpClient();
-    private Handler handler     = new Handler(Looper.getMainLooper());
+    private OkHttpClient client  = new OkHttpClient();
+    private Handler      handler = new Handler(Looper.getMainLooper());
     private String flaskUrl;
     private String serial;
 
@@ -52,13 +54,10 @@ public class AgentService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // Run immediately, then schedule repeating
         new Thread(this::reportStats).start();
         new Thread(this::pollCommands).start();
-
         handler.postDelayed(statsRunnable,   STATS_INTERVAL);
         handler.postDelayed(commandRunnable, COMMAND_INTERVAL);
-
         return START_STICKY;
     }
 
@@ -92,70 +91,99 @@ public class AgentService extends Service {
 
     private void reportStats() {
         try {
-            BatteryManager bm = (BatteryManager) getSystemService(BATTERY_SERVICE);
-            int battery = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
-            boolean charging = bm.isCharging();
+            JSONObject stats = new JSONObject();
 
-            StatFs sf = new StatFs(Environment.getDataDirectory().getPath());
-            long free  = sf.getAvailableBytes();
-            long total = sf.getTotalBytes();
+            // Battery — isolated
+            try {
+                BatteryManager bm = (BatteryManager) getSystemService(BATTERY_SERVICE);
+                stats.put("battery_level",    bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY));
+                stats.put("battery_charging", bm.isCharging());
+            } catch (Exception e) {
+                stats.put("battery_level", 0);
+                stats.put("battery_charging", false);
+            }
 
-            WifiManager wm = (WifiManager) getApplicationContext()
-                    .getSystemService(Context.WIFI_SERVICE);
-            WifiInfo wi   = wm.getConnectionInfo();
-            String ssid   = wi.getSSID().replace("\"", "");
-            int ipInt     = wi.getIpAddress();
-            String ip     = String.format("%d.%d.%d.%d",
-                    ipInt & 0xff, (ipInt >> 8) & 0xff,
-                    (ipInt >> 16) & 0xff, (ipInt >> 24) & 0xff);
+            // Storage — isolated
+            try {
+                StatFs sf = new StatFs(Environment.getDataDirectory().getPath());
+                stats.put("storage_free_bytes",  sf.getAvailableBytes());
+                stats.put("storage_total_bytes", sf.getTotalBytes());
+            } catch (Exception e) {
+                stats.put("storage_free_bytes",  0);
+                stats.put("storage_total_bytes", 0);
+            }
 
-            double lat = 0, lng = 0;
+            // WiFi — isolated
+            try {
+                WifiManager wm = (WifiManager) getApplicationContext()
+                        .getSystemService(Context.WIFI_SERVICE);
+                WifiInfo wi  = wm.getConnectionInfo();
+                String ssid  = wi.getSSID().replace("\"", "");
+                int ipInt    = wi.getIpAddress();
+                String ip    = String.format("%d.%d.%d.%d",
+                        ipInt & 0xff, (ipInt >> 8) & 0xff,
+                        (ipInt >> 16) & 0xff, (ipInt >> 24) & 0xff);
+                stats.put("wifi_ssid",  ssid);
+                stats.put("ip_address", ip);
+            } catch (Exception e) {
+                stats.put("wifi_ssid",  "");
+                stats.put("ip_address", "");
+            }
+
+            // Location — isolated
             try {
                 LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);
                 Location loc = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
-                if (loc != null) { lat = loc.getLatitude(); lng = loc.getLongitude(); }
-            } catch (SecurityException ignored) {}
+                if (loc == null) loc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+                stats.put("lat", loc != null ? loc.getLatitude()  : 0);
+                stats.put("lng", loc != null ? loc.getLongitude() : 0);
+            } catch (Exception e) {
+                stats.put("lat", 0);
+                stats.put("lng", 0);
+            }
 
-            List<UsageStatsHelper.AppUsage> usage = UsageStatsHelper.getTodayUsage(this);
+            // Device info — isolated
+            try {
+                stats.put("os_version", android.os.Build.VERSION.RELEASE);
+                stats.put("model",      android.os.Build.MODEL);
+                stats.put("make",       android.os.Build.MANUFACTURER);
+                stats.put("android_id", android.provider.Settings.Secure.getString(
+                        getContentResolver(),
+                        android.provider.Settings.Secure.ANDROID_ID));
+            } catch (Exception e) { /* non-fatal */ }
+
+            // Usage stats — isolated
             int screenTime = 0;
-            for (UsageStatsHelper.AppUsage a : usage) screenTime += a.foregroundMins;
-
-            JSONObject stats = new JSONObject();
-            stats.put("battery_level",       battery);
-            stats.put("battery_charging",    charging);
-            stats.put("storage_free_bytes",  free);
-            stats.put("storage_total_bytes", total);
-            stats.put("wifi_ssid",           ssid);
-            stats.put("ip_address",          ip);
-            stats.put("lat",                 lat);
-            stats.put("lng",                 lng);
-            stats.put("os_version",          android.os.Build.VERSION.RELEASE);
-            stats.put("model",               android.os.Build.MODEL);
-            stats.put("make",                android.os.Build.MANUFACTURER);
-            stats.put("android_id",          android.provider.Settings.Secure.getString(
-                    getContentResolver(),
-                    android.provider.Settings.Secure.ANDROID_ID));
+            List<UsageStatsHelper.AppUsage> usage = null;
+            try {
+                usage = UsageStatsHelper.getTodayUsage(this);
+                for (UsageStatsHelper.AppUsage a : usage) screenTime += a.foregroundMins;
+            } catch (Exception e) {
+                usage = null;
+            }
             stats.put("screen_time_today_mins", screenTime);
             stats.put("status", "online");
 
+            // POST stats
             post("/api/devices/" + serial + "/stats", stats);
 
-            // App usage report
-            if (!usage.isEmpty()) {
-                JSONArray apps = new JSONArray();
-                for (UsageStatsHelper.AppUsage a : usage) {
-                    JSONObject obj = new JSONObject();
-                    obj.put("package_name",   a.packageName);
-                    obj.put("app_name",       a.appName);
-                    obj.put("foreground_mins", a.foregroundMins);
-                    apps.put(obj);
-                }
-                java.text.SimpleDateFormat sdf =
-                        new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US);
-                JSONObject usagePayload = new JSONObject();
-                usagePayload.put("date", sdf.format(new java.util.Date()));
-                usagePayload.put("apps", apps);
-                post("/api/devices/" + serial + "/app_usage", usagePayload);
+            // POST app usage — isolated
+            if (usage != null && !usage.isEmpty()) {
+                try {
+                    JSONArray apps = new JSONArray();
+                    for (UsageStatsHelper.AppUsage a : usage) {
+                        JSONObject obj = new JSONObject();
+                        obj.put("package_name",    a.packageName);
+                        obj.put("app_name",        a.appName);
+                        obj.put("foreground_mins", a.foregroundMins);
+                        apps.put(obj);
+                    }
+                    JSONObject usagePayload = new JSONObject();
+                    usagePayload.put("date", new SimpleDateFormat(
+                            "yyyy-MM-dd", Locale.US).format(new Date()));
+                    usagePayload.put("apps", apps);
+                    post("/api/devices/" + serial + "/app_usage", usagePayload);
+                } catch (Exception e) { /* non-fatal */ }
             }
 
         } catch (Exception e) {
@@ -173,11 +201,11 @@ public class AgentService extends Service {
             Response res = client.newCall(req).execute();
             if (!res.isSuccessful()) return;
 
-            JSONArray cmds = new JSONArray(res.body().string());
+            org.json.JSONArray cmds = new org.json.JSONArray(res.body().string());
             CommandExecutor executor = new CommandExecutor(this);
 
             for (int i = 0; i < cmds.length(); i++) {
-                JSONObject cmd = cmds.getJSONObject(i);
+                JSONObject cmd     = cmds.getJSONObject(i);
                 int id             = cmd.getInt("id");
                 String command     = cmd.getString("command");
                 JSONObject payload = cmd.optJSONObject("payload");
@@ -190,11 +218,12 @@ public class AgentService extends Service {
                     status = "failed";
                 }
 
-                // Acknowledge
-                JSONObject ack = new JSONObject();
-                ack.put("command_id", id);
-                ack.put("status", status);
-                post("/api/devices/" + serial + "/command_ack", ack);
+                try {
+                    JSONObject ack = new JSONObject();
+                    ack.put("command_id", id);
+                    ack.put("status", status);
+                    post("/api/devices/" + serial + "/command_ack", ack);
+                } catch (Exception e) { /* non-fatal */ }
             }
 
         } catch (Exception e) {
@@ -229,8 +258,7 @@ public class AgentService extends Service {
                 CHANNEL_ID, "ZeroAxis Agent",
                 NotificationManager.IMPORTANCE_LOW);
         ch.setDescription("Device management agent");
-        NotificationManager nm = getSystemService(NotificationManager.class);
-        nm.createNotificationChannel(ch);
+        getSystemService(NotificationManager.class).createNotificationChannel(ch);
     }
 
     private Notification buildNotification() {
