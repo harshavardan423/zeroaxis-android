@@ -1,4 +1,4 @@
-name: Build ZeroAxis Installer APK
+name: Build ZeroAxis Agent APK
 
 on:
   push:
@@ -21,18 +21,28 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Make gradlew
+      - name: Inject flask_url into config.json
+        run: |
+          cat > app/src/main/assets/config.json <<EOF
+          {
+            "flask_url": "${{ secrets.FLASK_URL || 'https://zeroaxis.live' }}",
+            "headless": false,
+            "oem": false
+          }
+          EOF
+
+      - name: Make gradlew executable
         run: |
           wget https://services.gradle.org/distributions/gradle-8.4-bin.zip -P /tmp
           unzip /tmp/gradle-8.4-bin.zip -d /tmp
           /tmp/gradle-8.4/bin/gradle wrapper
           chmod +x gradlew
 
-      - name: Build Release APK
+      - name: Build Debug APK
         run: ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ZeroAxis-Installer
+          name: ZeroAxis-Agent
           path: app/build/outputs/apk/debug/*.apk
