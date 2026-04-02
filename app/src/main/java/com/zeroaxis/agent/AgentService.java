@@ -36,6 +36,7 @@ public class AgentService extends Service {
     private static final int    NOTIF_ID         = 1001;
     private static final long   STATS_INTERVAL   = 30 * 1000L;
     private static final long   COMMAND_INTERVAL =  10 * 1000L;
+    private static final long INSTALLED_APPS_INTERVAL = 24 * 60 * 60 * 1000L; // once per day
 
     private OkHttpClient client  = new OkHttpClient();
     private Handler      handler = new Handler(Looper.getMainLooper());
@@ -209,6 +210,33 @@ public class AgentService extends Service {
                     usagePayload.put("apps", apps);
                     post("/api/devices/" + serial + "/app_usage", usagePayload);
                 } catch (Exception e) { /* non-fatal */ }
+            }
+
+                        // Send installed apps (once per day)
+            long now = System.currentTimeMillis();
+            long lastInstalledSent = getSharedPreferences("zeroaxis", MODE_PRIVATE)
+                    .getLong("last_installed_sent", 0);
+            if (now - lastInstalledSent > INSTALLED_APPS_INTERVAL) {
+                List<UsageStatsHelper.AppInfo> installed = UsageStatsHelper.getInstalledApps(this);
+                if (!installed.isEmpty()) {
+                    try {
+                        JSONArray appsArray = new JSONArray();
+                        for (UsageStatsHelper.AppInfo app : installed) {
+                            JSONObject obj = new JSONObject();
+                            obj.put("package", app.packageName);
+                            obj.put("name", app.appName);
+                            obj.put("version", app.version);
+                            appsArray.put(obj);
+                        }
+                        JSONObject payload = new JSONObject();
+                        payload.put("apps", appsArray);
+                        post("/api/devices/" + serial + "/installed_apps", payload);
+                        getSharedPreferences("zeroaxis", MODE_PRIVATE)
+                                .edit().putLong("last_installed_sent", now).apply();
+                    } catch (Exception e) {
+                        // non-fatal
+                    }
+                }
             }
 
         } catch (Exception e) {
