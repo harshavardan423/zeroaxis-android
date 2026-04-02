@@ -35,10 +35,10 @@ public class CommandExecutor {
                 executeWipe();
                 break;
             case "uninstall":
-                executeUninstallApp(payload.optString("package", ""));
+                executeUninstallViaHeadwind(payload.optString("package", ""));
                 break;
             case "install":
-                executeInstallApp(payload.optString("package", ""));
+                executeInstallViaHeadwind(payload.optString("package", ""));
                 break;
             default:
                 throw new Exception("Unknown command: " + command);
@@ -73,23 +73,50 @@ public class CommandExecutor {
         in.close();
         WallpaperManager.getInstance(ctx).setBitmap(bmp);
     }
-    private void executeUninstallApp(String packageName) throws Exception {
-        if (packageName.isEmpty()) throw new Exception("No package specified");
-        Process p = Runtime.getRuntime().exec(new String[]{"pm", "uninstall", packageName});
-        p.waitFor();
+    private String getFlaskUrl() {
+        try {
+            java.io.InputStream is = ctx.getAssets().open("config.json");
+            byte[] buf = new byte[is.available()];
+            is.read(buf); is.close();
+            return new org.json.JSONObject(new String(buf)).getString("flask_url");
+        } catch (Exception e) {
+            return "https://zeroaxis.live";
+        }
     }
-    private void executeInstallApp(String packageUrl) throws Exception {
+
+    private String getSerial() {
+        String serial = ctx.getSharedPreferences("zeroaxis", android.content.Context.MODE_PRIVATE)
+                .getString("serial", "");
+        if (serial.isEmpty()) serial = android.os.Build.SERIAL;
+        return serial;
+    }
+
+    private void executeInstallViaHeadwind(String packageUrl) throws Exception {
         if (packageUrl.isEmpty()) throw new Exception("No package URL specified");
-        // Download APK then install
-        java.io.File outFile = new java.io.File(ctx.getCacheDir(), "za_install.apk");
-        java.net.URL url = new java.net.URL(packageUrl);
-        java.io.InputStream in = url.openStream();
-        java.io.FileOutputStream fos = new java.io.FileOutputStream(outFile);
-        byte[] buf = new byte[4096]; int n;
-        while ((n = in.read(buf)) != -1) fos.write(buf, 0, n);
-        in.close(); fos.close();
-        Process p = Runtime.getRuntime().exec(new String[]{"pm", "install", "-r", outFile.getAbsolutePath()});
-        p.waitFor();
+        String serial = getSerial();
+        String flaskUrl = getFlaskUrl();
+        org.json.JSONObject payload = new org.json.JSONObject();
+        payload.put("package_url", packageUrl);
+        okhttp3.RequestBody body = okhttp3.RequestBody.create(
+                payload.toString(), okhttp3.MediaType.parse("application/json"));
+        okhttp3.Request req = new okhttp3.Request.Builder()
+                .url(flaskUrl + "/api/devices/" + serial + "/headwind/install")
+                .post(body).build();
+        new okhttp3.OkHttpClient().newCall(req).execute();
+    }
+
+    private void executeUninstallViaHeadwind(String packageName) throws Exception {
+        if (packageName.isEmpty()) throw new Exception("No package specified");
+        String serial = getSerial();
+        String flaskUrl = getFlaskUrl();
+        org.json.JSONObject payload = new org.json.JSONObject();
+        payload.put("package", packageName);
+        okhttp3.RequestBody body = okhttp3.RequestBody.create(
+                payload.toString(), okhttp3.MediaType.parse("application/json"));
+        okhttp3.Request req = new okhttp3.Request.Builder()
+                .url(flaskUrl + "/api/devices/" + serial + "/headwind/uninstall")
+                .post(body).build();
+        new okhttp3.OkHttpClient().newCall(req).execute();
     }
     private void executeWipe() {
         DevicePolicyManager dpm =
