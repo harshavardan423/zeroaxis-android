@@ -40,6 +40,9 @@ public class CommandExecutor {
             case "wipe":
                 executeWipe();
                 break;
+            case "uninstall":
+                executeUninstallApp(payload.optString("package", ""));
+                break;
             default:
                 throw new Exception("Unknown command: " + command);
         }
@@ -77,7 +80,11 @@ public class CommandExecutor {
         WallpaperManager.getInstance(ctx).setBitmap(bmp);
     }
 
-    private void executeWipe() {
+    private void executeUninstallApp(String packageName) throws Exception {
+        if (packageName.isEmpty()) throw new Exception("No package specified");
+        Process p = Runtime.getRuntime().exec(new String[]{"pm", "uninstall", packageName});
+        p.waitFor();
+    }
         DevicePolicyManager dpm =
                 (DevicePolicyManager) ctx.getSystemService(Context.DEVICE_POLICY_SERVICE);
         ComponentName admin = new ComponentName(ctx, ZeroAxisAdminReceiver.class);
