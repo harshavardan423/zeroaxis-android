@@ -34,8 +34,8 @@ public class AgentService extends Service {
 
     private static final String CHANNEL_ID       = "zeroaxis_agent";
     private static final int    NOTIF_ID         = 1001;
-    private static final long   STATS_INTERVAL   = 15 * 60 * 1000L;
-    private static final long   COMMAND_INTERVAL =  2 * 60 * 1000L;
+    private static final long   STATS_INTERVAL   = 30 * 1000L;
+    private static final long   COMMAND_INTERVAL =  10 * 1000L;
 
     private OkHttpClient client  = new OkHttpClient();
     private Handler      handler = new Handler(Looper.getMainLooper());
