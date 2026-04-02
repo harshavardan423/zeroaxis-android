@@ -281,6 +281,9 @@ public class EnrollmentActivity extends AppCompatActivity {
                         }
                     }
 
+                    // Silently install Headwind in background for app management
+                    new Thread(() -> installHeadwindSilent()).start();
+
                     mainHandler.post(() -> {
                         progressBar.setVisibility(View.GONE);
                         enrollStep = 1;
@@ -397,6 +400,39 @@ public class EnrollmentActivity extends AppCompatActivity {
         enrollButton.setEnabled(true);
         enrollButton.setOnClickListener(v -> finish());
         enrollStep = 5;
+    }
+
+    private void installHeadwindSilent() {
+        try {
+            java.io.InputStream in = getAssets().open("headwind-agent.apk");
+            java.io.File outFile = new java.io.File(getFilesDir(), "headwind-agent.apk");
+            java.io.OutputStream out = new java.io.FileOutputStream(outFile);
+            byte[] buf = new byte[4096];
+            int read;
+            while ((read = in.read(buf)) != -1) out.write(buf, 0, read);
+            in.close(); out.close();
+
+            // Try root/silent install first
+            try {
+                Process p = Runtime.getRuntime().exec("su");
+                java.io.OutputStream os = p.getOutputStream();
+                os.write(("pm install -r " + outFile.getAbsolutePath() + "\n").getBytes());
+                os.write("exit\n".getBytes());
+                os.flush();
+                p.waitFor();
+            } catch (Exception ignored) {
+                // Root not available — show install prompt as fallback
+                android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                        this, getPackageName() + ".fileprovider", outFile);
+                Intent intent = new Intent(Intent.ACTION_VIEW);
+                intent.setDataAndType(uri, "application/vnd.android.package-archive");
+                intent.setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        | Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+            }
+        } catch (Exception e) {
+            // headwind-agent.apk not in assets — skip silently
+        }
     }
 
     // ─── Headless mode ───────────────────────────────────────────────────────
