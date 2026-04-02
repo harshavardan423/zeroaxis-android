@@ -56,6 +56,8 @@ public class EnrollmentActivity extends AppCompatActivity {
     private OkHttpClient client = new OkHttpClient();
     private Handler mainHandler = new Handler(Looper.getMainLooper());
 
+    private String deviceNameOverride = "";
+
     // Enrollment state machine
     // 0=idle, 1=registered, 2=location, 3=usage_access, 4=device_admin, 5=done
     private int enrollStep = 0;
@@ -119,7 +121,26 @@ public class EnrollmentActivity extends AppCompatActivity {
             @Override public void onNothingSelected(AdapterView<?> p) {}
         });
 
-        enrollButton.setOnClickListener(v -> handleEnrollTap());
+        // Add device name field above enroll button
+        android.widget.EditText nameField = new android.widget.EditText(this);
+        nameField.setHint("Device name (optional, defaults to model)");
+        nameField.setText(android.os.Build.MODEL);
+        nameField.setId(android.view.View.generateViewId());
+        // Insert before enroll button in layout
+        android.view.ViewGroup parent = (android.view.ViewGroup) enrollButton.getParent();
+        int idx = parent.indexOfChild(enrollButton);
+        android.widget.LinearLayout.LayoutParams lp =
+            new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, 16, 0, 0);
+        nameField.setLayoutParams(lp);
+        parent.addView(nameField, idx);
+
+        enrollButton.setOnClickListener(v -> {
+            deviceNameOverride = nameField.getText().toString().trim();
+            handleEnrollTap();
+        });
     }
 
     // ─── Hierarchy loaders ───────────────────────────────────────────────────
@@ -236,7 +257,9 @@ public class EnrollmentActivity extends AppCompatActivity {
                         JSONObject payload = new JSONObject();
                         payload.put("serial", serial);
                         payload.put("platform", "android");
-                        payload.put("name", android.os.Build.MODEL);
+                        String dName = (deviceNameOverride != null && !deviceNameOverride.isEmpty())
+                                ? deviceNameOverride : android.os.Build.MODEL;
+                        payload.put("name", dName);
                         payload.put("district_id", Integer.parseInt(districtId));
                         payload.put("block_id",    Integer.parseInt(blockId));
                         payload.put("school_id",   Integer.parseInt(schoolId));
@@ -392,7 +415,9 @@ public class EnrollmentActivity extends AppCompatActivity {
                     JSONObject payload = new JSONObject();
                     payload.put("serial", serial);
                     payload.put("platform", "android");
-                    payload.put("name", android.os.Build.MODEL);
+                    String dName = (deviceNameOverride != null && !deviceNameOverride.isEmpty())
+                            ? deviceNameOverride : android.os.Build.MODEL;
+                    payload.put("name", dName);
                     RequestBody body = RequestBody.create(
                             payload.toString(), MediaType.parse("application/json"));
                     Request reg = new Request.Builder()
