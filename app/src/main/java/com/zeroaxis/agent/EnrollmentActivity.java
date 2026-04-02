@@ -84,6 +84,15 @@ public class EnrollmentActivity extends AppCompatActivity {
             return;
         }
 
+        // Already enrolled — just restart the service and exit
+        String savedSerial = getSharedPreferences("zeroaxis", MODE_PRIVATE)
+                .getString("serial", null);
+        if (savedSerial != null) {
+            ContextCompat.startForegroundService(this, new Intent(this, AgentService.class));
+            finish();
+            return;
+        }
+
         setContentView(R.layout.activity_enrollment);
         districtSpinner = findViewById(R.id.districtSpinner);
         blockSpinner    = findViewById(R.id.blockSpinner);
