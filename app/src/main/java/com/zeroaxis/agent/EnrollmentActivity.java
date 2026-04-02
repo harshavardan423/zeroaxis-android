@@ -36,7 +36,9 @@ import okhttp3.Response;
 
 public class EnrollmentActivity extends AppCompatActivity {
 
-    private static final int REQ_LOCATION = 1001;
+    private static final int REQ_LOCATION      = 1001;
+    private static final int REQ_NOTIFICATIONS = 1002;
+    
 
     private String flaskUrl;
     private boolean headless;
@@ -191,7 +193,7 @@ public class EnrollmentActivity extends AppCompatActivity {
     private void handleEnrollTap() {
         switch (enrollStep) {
             case 0: startRegistration(); break;
-            case 1: requestLocationPermission(); break;
+            case 1: requestNotificationPermission(); break;
             case 2: openUsageAccessSettings(); break;
             case 3: requestDeviceAdmin(); break;
             case 4: finishEnrollment(); break;
@@ -278,6 +280,19 @@ public class EnrollmentActivity extends AppCompatActivity {
         }
     }
 
+    private void requestNotificationPermission() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                        new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATIONS);
+                return;
+            }
+        }
+        // Already granted or below Android 13 — move to location
+        requestLocationPermission();
+    }
+
     private void requestLocationPermission() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 == PackageManager.PERMISSION_GRANTED) {
@@ -292,7 +307,9 @@ public class EnrollmentActivity extends AppCompatActivity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
-        if (requestCode == REQ_LOCATION) {
+        if (requestCode == REQ_NOTIFICATIONS) {
+            requestLocationPermission();
+        } else if (requestCode == REQ_LOCATION) {
             enrollStep = 2;
             openUsageAccessSettings();
         }
