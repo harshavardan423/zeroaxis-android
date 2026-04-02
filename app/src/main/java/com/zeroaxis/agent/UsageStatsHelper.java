@@ -72,6 +72,31 @@ public class UsageStatsHelper {
         return result;
     }
 
+    public static class AppInfo {
+        public String packageName;
+        public String appName;
+        public String version;
+        AppInfo(String pkg, String name, String ver) {
+            packageName = pkg;
+            appName = name;
+            version = ver;
+        }
+    }
+
+    public static List<AppInfo> getInstalledApps(Context context) {
+        List<AppInfo> result = new ArrayList<>();
+        PackageManager pm = context.getPackageManager();
+        for (ApplicationInfo ai : pm.getInstalledApplications(PackageManager.GET_META_DATA)) {
+            if ((ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0) continue;
+            String label = pm.getApplicationLabel(ai).toString();
+            String version = "";
+            try { version = pm.getPackageInfo(ai.packageName, 0).versionName; } catch (Exception e) {}
+            result.add(new AppInfo(ai.packageName, label, version));
+        }
+        Collections.sort(result, (a, b) -> a.appName.compareToIgnoreCase(b.appName));
+        return result;
+    }
+
     public static boolean hasPermission(Context context) {
         AppOpsManager aom = (AppOpsManager) context.getSystemService(Context.APP_OPS_SERVICE);
         int mode = aom.checkOpNoThrow(
