@@ -113,16 +113,32 @@ public class AgentService extends Service {
                 stats.put("storage_total_bytes", 0);
             }
 
-            // WiFi — isolated
+            // WiFi — isolated, Android 10+ compatible
             try {
-                WifiManager wm = (WifiManager) getApplicationContext()
-                        .getSystemService(Context.WIFI_SERVICE);
-                WifiInfo wi  = wm.getConnectionInfo();
-                String ssid  = wi.getSSID().replace("\"", "");
-                int ipInt    = wi.getIpAddress();
-                String ip    = String.format("%d.%d.%d.%d",
-                        ipInt & 0xff, (ipInt >> 8) & 0xff,
-                        (ipInt >> 16) & 0xff, (ipInt >> 24) & 0xff);
+                android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
+                        getSystemService(Context.CONNECTIVITY_SERVICE);
+                android.net.Network activeNet = cm.getActiveNetwork();
+                android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(activeNet);
+                String ssid = "";
+                String ip = "";
+                if (caps != null && caps.hasTransport(
+                        android.net.NetworkCapabilities.TRANSPORT_WIFI)) {
+                    android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager)
+                            getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                    android.net.wifi.WifiInfo wi = wm.getConnectionInfo();
+                    ssid = wi.getSSID().replace("\"", "");
+                    // IP via LinkProperties (API 23+)
+                    android.net.LinkProperties lp = cm.getLinkProperties(activeNet);
+                    if (lp != null) {
+                        for (android.net.LinkAddress la : lp.getLinkAddresses()) {
+                            java.net.InetAddress addr = la.getAddress();
+                            if (addr instanceof java.net.Inet4Address) {
+                                ip = addr.getHostAddress();
+                                break;
+                            }
+                        }
+                    }
+                }
                 stats.put("wifi_ssid",  ssid);
                 stats.put("ip_address", ip);
             } catch (Exception e) {
