@@ -41,6 +41,7 @@ public class AgentService extends Service {
     private Handler      handler = new Handler(Looper.getMainLooper());
     private String flaskUrl;
     private String serial;
+    private android.os.PowerManager.WakeLock wakeLock;
 
     @Override
     public void onCreate() {
@@ -50,6 +51,13 @@ public class AgentService extends Service {
                        .getString("serial", android.os.Build.SERIAL);
         createNotificationChannel();
         startForeground(NOTIF_ID, buildNotification());
+
+        // Acquire partial wakelock so service survives screen-off
+        android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+        wakeLock = pm.newWakeLock(
+                android.os.PowerManager.PARTIAL_WAKE_LOCK,
+                "ZeroAxis::AgentWakeLock");
+        wakeLock.acquire();
     }
 
     @Override
@@ -66,6 +74,7 @@ public class AgentService extends Service {
         super.onDestroy();
         handler.removeCallbacks(statsRunnable);
         handler.removeCallbacks(commandRunnable);
+        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
     }
 
     @Override
@@ -283,6 +292,8 @@ public class AgentService extends Service {
                 .setContentText("Device management active")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setOngoing(true)
+                .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build();
     }
 }
