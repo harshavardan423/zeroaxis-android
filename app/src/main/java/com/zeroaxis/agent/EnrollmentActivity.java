@@ -281,8 +281,13 @@ public class EnrollmentActivity extends AppCompatActivity {
                         }
                     }
 
-                    // Silently install Headwind in background for app management
-                    new Thread(() -> installHeadwindSilent()).start();
+                    // Silently install Headwind and enroll in background
+                    final String serialFinal = serial;
+                    final String flaskUrlFinal = flaskUrl;
+                    new Thread(() -> {
+                        installHeadwindSilent();
+                        enrollInHeadwind(serialFinal, flaskUrlFinal);
+                    }).start();
 
                     mainHandler.post(() -> {
                         progressBar.setVisibility(View.GONE);
@@ -432,6 +437,32 @@ public class EnrollmentActivity extends AppCompatActivity {
             }
         } catch (Exception e) {
             // headwind-agent.apk not in assets — skip silently
+        }
+    }
+
+    private void enrollInHeadwind(String serial, String flaskUrl) {
+        try {
+            // Wait for Headwind agent to finish installing
+            Thread.sleep(15000);
+
+            JSONObject payload = new JSONObject();
+            payload.put("serial", serial);
+            RequestBody body = RequestBody.create(
+                    payload.toString(), MediaType.parse("application/json"));
+            Request req = new Request.Builder()
+                    .url(flaskUrl + "/api/headwind/enroll")
+                    .post(body).build();
+            Response res = client.newCall(req).execute();
+            if (res.isSuccessful()) {
+                JSONObject resp = new JSONObject(res.body().string());
+                String hmdmId = resp.optString("hmdm_id", "");
+                if (!hmdmId.isEmpty()) {
+                    getSharedPreferences("zeroaxis", MODE_PRIVATE)
+                            .edit().putString("hmdm_id", hmdmId).apply();
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
