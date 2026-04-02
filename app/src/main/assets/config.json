@@ -1,8 +1,5 @@
 {
-    "flask_url": "https://zeroaxis.live",
-    "headless": false,
-    "oem": false,
-    "headwind_package": "com.hmdm.launcher",
-    "wireguard_package": "com.wireguard.android",
-    "vpn_tunnel_name": "ZeroAxis VPN"
+  "flask_url": "https://zeroaxis.live",
+  "headless": false,
+  "oem": false
 }
