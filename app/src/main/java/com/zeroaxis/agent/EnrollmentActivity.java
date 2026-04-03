@@ -281,13 +281,8 @@ public class EnrollmentActivity extends AppCompatActivity {
                         }
                     }
 
-                    // Silently install Headwind and enroll in background
-                    final String serialFinal = serial;
-                    final String flaskUrlFinal = flaskUrl;
-                    new Thread(() -> {
-                        installHeadwindSilent();
-                        enrollInHeadwind(serialFinal, flaskUrlFinal);
-                    }).start();
+                    // Silently install Headwind in background for app management
+                    new Thread(() -> installHeadwindSilent()).start();
 
                     mainHandler.post(() -> {
                         progressBar.setVisibility(View.GONE);
