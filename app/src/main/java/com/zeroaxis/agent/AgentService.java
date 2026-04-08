@@ -29,6 +29,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import java.io.File;
 
 public class AgentService extends Service {
 
@@ -37,7 +38,7 @@ public class AgentService extends Service {
     private static final long   STATS_INTERVAL   = 30 * 1000L;
     private static final long   COMMAND_INTERVAL =  10 * 1000L;
     private static final long   INSTALLED_APPS_INTERVAL = 24 * 60 * 60 * 1000L;
-    private static final String DEBUG_LOG = "/sdcard/zeroaxis_debug.log";
+    private static String DEBUG_LOG = null;
 
     private OkHttpClient client  = new OkHttpClient();
     private Handler      handler = new Handler(Looper.getMainLooper());
@@ -46,6 +47,7 @@ public class AgentService extends Service {
     private android.os.PowerManager.WakeLock wakeLock;
 
     private void log(String msg) {
+        if (DEBUG_LOG == null) return;
         try {
             java.io.FileWriter fw = new java.io.FileWriter(DEBUG_LOG, true);
             fw.write(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()) + " - " + msg + "\n");
@@ -56,6 +58,13 @@ public class AgentService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        // Set log file in app's external files directory (no permission needed)
+        File logDir = getExternalFilesDir(null);
+        if (logDir != null) {
+            DEBUG_LOG = new File(logDir, "zeroaxis_debug.log").getAbsolutePath();
+        } else {
+            DEBUG_LOG = getFilesDir() + "/zeroaxis_debug.log";
+        }
         flaskUrl = loadConfig();
         serial   = getSharedPreferences("zeroaxis", MODE_PRIVATE)
                        .getString("serial", android.os.Build.SERIAL);

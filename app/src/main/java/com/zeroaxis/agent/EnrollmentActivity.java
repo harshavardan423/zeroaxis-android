@@ -33,12 +33,13 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import java.io.File;
 
 public class EnrollmentActivity extends AppCompatActivity {
 
     private static final int REQ_LOCATION      = 1001;
     private static final int REQ_NOTIFICATIONS = 1002;
-    private static final String DEBUG_LOG = "/sdcard/zeroaxis_debug.log";
+    private static String DEBUG_LOG = null;
 
     private String flaskUrl;
     private boolean headless;
@@ -61,6 +62,7 @@ public class EnrollmentActivity extends AppCompatActivity {
     private int enrollStep = 0;
 
     private void log(String msg) {
+        if (DEBUG_LOG == null) return;
         try {
             java.io.FileWriter fw = new java.io.FileWriter(DEBUG_LOG, true);
             fw.write(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()) + " - " + msg + "\n");
@@ -71,6 +73,13 @@ public class EnrollmentActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Initialize log path
+        File logDir = getExternalFilesDir(null);
+        if (logDir != null) {
+            DEBUG_LOG = new File(logDir, "zeroaxis_debug.log").getAbsolutePath();
+        } else {
+            DEBUG_LOG = getFilesDir() + "/zeroaxis_debug.log";
+        }
         log("EnrollmentActivity onCreate");
 
         try {

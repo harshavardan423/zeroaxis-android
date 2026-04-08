@@ -12,11 +12,25 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.io.File;
 
 public class UsageStatsHelper {
 
-    private static final String DEBUG_LOG = "/sdcard/zeroaxis_debug.log";
-    private static void log(String msg) {
+    private static String DEBUG_LOG = null;
+
+    private static void initLog(Context context) {
+        if (DEBUG_LOG == null) {
+            File logDir = context.getExternalFilesDir(null);
+            if (logDir != null) {
+                DEBUG_LOG = new File(logDir, "zeroaxis_debug.log").getAbsolutePath();
+            } else {
+                DEBUG_LOG = context.getFilesDir() + "/zeroaxis_debug.log";
+            }
+        }
+    }
+
+    private static void log(Context context, String msg) {
+        initLog(context);
         try {
             java.io.FileWriter fw = new java.io.FileWriter(DEBUG_LOG, true);
             fw.write(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()) + " - " + msg + "\n");
@@ -39,7 +53,7 @@ public class UsageStatsHelper {
     public static List<AppUsage> getTodayUsage(Context context) {
         List<AppUsage> result = new ArrayList<>();
         if (!hasPermission(context)) {
-            log("getTodayUsage: no permission");
+            log(context, "getTodayUsage: no permission");
             return result;
         }
 
@@ -81,7 +95,7 @@ public class UsageStatsHelper {
         }
 
         Collections.sort(result, (a, b) -> b.foregroundMins - a.foregroundMins);
-        log("getTodayUsage: found " + result.size() + " apps");
+        log(context, "getTodayUsage: found " + result.size() + " apps");
         return result;
     }
 
@@ -101,16 +115,13 @@ public class UsageStatsHelper {
         PackageManager pm = context.getPackageManager();
         // Removed FLAG_SYSTEM filter – now includes all apps (including system)
         for (ApplicationInfo ai : pm.getInstalledApplications(PackageManager.GET_META_DATA)) {
-            // Optionally exclude only a few critical system packages:
-            // String[] excludePkgs = {"com.android.systemui", "com.android.settings", "com.android.phone"};
-            // if (Arrays.asList(excludePkgs).contains(ai.packageName)) continue;
             String label = pm.getApplicationLabel(ai).toString();
             String version = "";
             try { version = pm.getPackageInfo(ai.packageName, 0).versionName; } catch (Exception e) {}
             result.add(new AppInfo(ai.packageName, label, version));
         }
         Collections.sort(result, (a, b) -> a.appName.compareToIgnoreCase(b.appName));
-        log("getInstalledApps: found " + result.size() + " apps");
+        log(context, "getInstalledApps: found " + result.size() + " apps");
         return result;
     }
 
@@ -121,7 +132,7 @@ public class UsageStatsHelper {
                 android.os.Process.myUid(),
                 context.getPackageName());
         boolean allowed = mode == AppOpsManager.MODE_ALLOWED;
-        log("hasPermission: " + allowed);
+        log(context, "hasPermission: " + allowed);
         return allowed;
     }
 }
