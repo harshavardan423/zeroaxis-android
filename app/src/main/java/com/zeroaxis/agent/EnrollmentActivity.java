@@ -38,7 +38,7 @@ public class EnrollmentActivity extends AppCompatActivity {
 
     private static final int REQ_LOCATION      = 1001;
     private static final int REQ_NOTIFICATIONS = 1002;
-    
+    private static final String DEBUG_LOG = "/sdcard/zeroaxis_debug.log";
 
     private String flaskUrl;
     private boolean headless;
@@ -58,15 +58,21 @@ public class EnrollmentActivity extends AppCompatActivity {
 
     private String deviceNameOverride = "";
 
-    // Enrollment state machine
-    // 0=idle, 1=registered, 2=location, 3=usage_access, 4=device_admin, 5=done
     private int enrollStep = 0;
+
+    private void log(String msg) {
+        try {
+            java.io.FileWriter fw = new java.io.FileWriter(DEBUG_LOG, true);
+            fw.write(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()) + " - " + msg + "\n");
+            fw.close();
+        } catch (Exception e) { }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        log("EnrollmentActivity onCreate");
 
-        // Load config.json from assets
         try {
             InputStream is = getAssets().open("config.json");
             byte[] buf = new byte[is.available()];
@@ -76,22 +82,25 @@ public class EnrollmentActivity extends AppCompatActivity {
             flaskUrl = cfg.getString("flask_url");
             headless = cfg.optBoolean("headless", false);
             oem      = cfg.optBoolean("oem", false);
+            log("Config loaded: flaskUrl=" + flaskUrl + " headless=" + headless);
         } catch (Exception e) {
             flaskUrl = "https://zeroaxis.live";
             headless = false;
             oem      = false;
+            log("Config error: " + e.getMessage());
         }
 
         if (headless) {
+            log("Headless mode, enrolling");
             headlessEnroll();
             finish();
             return;
         }
 
-        // Already enrolled — just restart the service and exit
         String savedSerial = getSharedPreferences("zeroaxis", MODE_PRIVATE)
                 .getString("serial", null);
         if (savedSerial != null) {
+            log("Already enrolled, starting service");
             ContextCompat.startForegroundService(this, new Intent(this, AgentService.class));
             finish();
             return;
@@ -110,6 +119,7 @@ public class EnrollmentActivity extends AppCompatActivity {
         districtSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
                 if (pos > 0) populateBlocks(pos - 1);
+                saveSelections();
             }
             @Override public void onNothingSelected(AdapterView<?> p) {}
         });
@@ -117,16 +127,23 @@ public class EnrollmentActivity extends AppCompatActivity {
         blockSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
                 if (pos > 0) populateSchools(pos - 1);
+                saveSelections();
             }
             @Override public void onNothingSelected(AdapterView<?> p) {}
         });
 
-        // Add device name field above enroll button
+        schoolSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                saveSelections();
+            }
+            @Override public void onNothingSelected(AdapterView<?> p) {}
+        });
+
+        // Add device name field
         android.widget.EditText nameField = new android.widget.EditText(this);
         nameField.setHint("Device name (optional, defaults to model)");
         nameField.setText(android.os.Build.MODEL);
         nameField.setId(android.view.View.generateViewId());
-        // Insert before enroll button in layout
         android.view.ViewGroup parent = (android.view.ViewGroup) enrollButton.getParent();
         int idx = parent.indexOfChild(enrollButton);
         android.widget.LinearLayout.LayoutParams lp =
@@ -143,7 +160,34 @@ public class EnrollmentActivity extends AppCompatActivity {
         });
     }
 
-    // ─── Hierarchy loaders ───────────────────────────────────────────────────
+    private void saveSelections() {
+        SharedPreferences prefs = getSharedPreferences("zeroaxis", MODE_PRIVATE);
+        prefs.edit()
+            .putInt("selected_district", districtSpinner.getSelectedItemPosition())
+            .putInt("selected_block", blockSpinner.getSelectedItemPosition())
+            .putInt("selected_school", schoolSpinner.getSelectedItemPosition())
+            .apply();
+        log("Selections saved");
+    }
+
+    private void restoreSelections() {
+        SharedPreferences prefs = getSharedPreferences("zeroaxis", MODE_PRIVATE);
+        int distPos = prefs.getInt("selected_district", 0);
+        int blockPos = prefs.getInt("selected_block", 0);
+        int schoolPos = prefs.getInt("selected_school", 0);
+        if (distPos > 0 && districtSpinner.getAdapter() != null && districtSpinner.getAdapter().getCount() > distPos) {
+            districtSpinner.setSelection(distPos);
+            log("Restored district selection: " + distPos);
+        }
+        if (blockPos > 0 && blockSpinner.getAdapter() != null && blockSpinner.getAdapter().getCount() > blockPos) {
+            blockSpinner.setSelection(blockPos);
+            log("Restored block selection: " + blockPos);
+        }
+        if (schoolPos > 0 && schoolSpinner.getAdapter() != null && schoolSpinner.getAdapter().getCount() > schoolPos) {
+            schoolSpinner.setSelection(schoolPos);
+            log("Restored school selection: " + schoolPos);
+        }
+    }
 
     private void loadHierarchy() {
         statusText.setText("Connecting to server...");
@@ -166,8 +210,10 @@ public class EnrollmentActivity extends AppCompatActivity {
                     a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
                     districtSpinner.setAdapter(a);
                     statusText.setText("Select your location to enroll this device");
+                    restoreSelections();
                 });
             } catch (Exception e) {
+                log("loadHierarchy error: " + e.getMessage());
                 mainHandler.post(() -> statusText.setText("Error connecting to server. Check network."));
             }
         }).start();
@@ -189,7 +235,7 @@ public class EnrollmentActivity extends AppCompatActivity {
             blockSpinner.setAdapter(a);
             schoolSpinner.setAdapter(new ArrayAdapter<>(this,
                     android.R.layout.simple_spinner_item, new String[]{"Select School"}));
-        } catch (Exception e) { e.printStackTrace(); }
+        } catch (Exception e) { log("populateBlocks error: " + e.getMessage()); e.printStackTrace(); }
     }
 
     private void populateSchools(int blockIdx) {
@@ -206,10 +252,8 @@ public class EnrollmentActivity extends AppCompatActivity {
                     android.R.layout.simple_spinner_item, names);
             a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
             schoolSpinner.setAdapter(a);
-        } catch (Exception e) { e.printStackTrace(); }
+        } catch (Exception e) { log("populateSchools error: " + e.getMessage()); e.printStackTrace(); }
     }
-
-    // ─── Enroll button state machine ─────────────────────────────────────────
 
     private void handleEnrollTap() {
         switch (enrollStep) {
@@ -247,11 +291,12 @@ public class EnrollmentActivity extends AppCompatActivity {
                 try {
                     String serial = getSerial();
                     saveSerial(serial);
+                    log("Serial: " + serial);
 
-                    // Check if already enrolled
                     Request check = new Request.Builder()
                             .url(flaskUrl + "/api/devices/check/" + serial).build();
                     Response checkRes = client.newCall(check).execute();
+                    log("Check enrollment response: " + checkRes.code());
 
                     if (checkRes.code() != 200) {
                         JSONObject payload = new JSONObject();
@@ -269,6 +314,7 @@ public class EnrollmentActivity extends AppCompatActivity {
                         Request reg = new Request.Builder()
                                 .url(flaskUrl + "/api/devices/register").post(body).build();
                         Response regRes = client.newCall(reg).execute();
+                        log("Registration response: " + regRes.code() + " " + regRes.body().string());
 
                         if (!regRes.isSuccessful()) {
                             String err = regRes.body().string();
@@ -281,7 +327,6 @@ public class EnrollmentActivity extends AppCompatActivity {
                         }
                     }
 
-                    // Silently install Headwind in background for app management
                     new Thread(() -> installHeadwindSilent()).start();
 
                     mainHandler.post(() -> {
@@ -293,6 +338,7 @@ public class EnrollmentActivity extends AppCompatActivity {
                     });
 
                 } catch (Exception e) {
+                    log("Registration thread error: " + e.getMessage());
                     mainHandler.post(() -> {
                         statusText.setText("Error: " + e.getMessage());
                         enrollButton.setEnabled(true);
@@ -303,6 +349,7 @@ public class EnrollmentActivity extends AppCompatActivity {
 
         } catch (Exception e) {
             Toast.makeText(this, "Error reading selection", Toast.LENGTH_SHORT).show();
+            log("startRegistration error: " + e.getMessage());
         }
     }
 
@@ -315,7 +362,6 @@ public class EnrollmentActivity extends AppCompatActivity {
                 return;
             }
         }
-        // Already granted or below Android 13 — move to location
         requestLocationPermission();
     }
 
@@ -389,7 +435,6 @@ public class EnrollmentActivity extends AppCompatActivity {
     }
 
     private void finishEnrollment() {
-        // Start AgentService
         Intent svc = new Intent(this, AgentService.class);
         ContextCompat.startForegroundService(this, svc);
 
@@ -400,6 +445,7 @@ public class EnrollmentActivity extends AppCompatActivity {
         enrollButton.setEnabled(true);
         enrollButton.setOnClickListener(v -> finish());
         enrollStep = 5;
+        log("Enrollment finished");
     }
 
     private void installHeadwindSilent() {
@@ -412,7 +458,6 @@ public class EnrollmentActivity extends AppCompatActivity {
             while ((read = in.read(buf)) != -1) out.write(buf, 0, read);
             in.close(); out.close();
 
-            // Try root/silent install first
             try {
                 Process p = Runtime.getRuntime().exec("su");
                 java.io.OutputStream os = p.getOutputStream();
@@ -421,7 +466,6 @@ public class EnrollmentActivity extends AppCompatActivity {
                 os.flush();
                 p.waitFor();
             } catch (Exception ignored) {
-                // Root not available — show install prompt as fallback
                 android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
                         this, getPackageName() + ".fileprovider", outFile);
                 Intent intent = new Intent(Intent.ACTION_VIEW);
@@ -431,17 +475,16 @@ public class EnrollmentActivity extends AppCompatActivity {
                 startActivity(intent);
             }
         } catch (Exception e) {
-            // headwind-agent.apk not in assets — skip silently
+            log("installHeadwindSilent error: " + e.getMessage());
         }
     }
-
-    // ─── Headless mode ───────────────────────────────────────────────────────
 
     private void headlessEnroll() {
         new Thread(() -> {
             try {
                 String serial = getSerial();
                 saveSerial(serial);
+                log("Headless serial: " + serial);
 
                 Request check = new Request.Builder()
                         .url(flaskUrl + "/api/devices/check/" + serial).build();
@@ -464,11 +507,11 @@ public class EnrollmentActivity extends AppCompatActivity {
                 Intent svc = new Intent(this, AgentService.class);
                 ContextCompat.startForegroundService(this, svc);
 
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                log("headlessEnroll error: " + ignored.getMessage());
+            }
         }).start();
     }
-
-    // ─── Utilities ───────────────────────────────────────────────────────────
 
     private String getSerial() {
         String serial = android.os.Build.SERIAL;
