@@ -14,20 +14,16 @@ import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
 
-    private String pendingScanType = null;
+    private static final int REQ_MEDIA_PERMISSIONS = 2001;
+
+    private String pendingScanType     = null;
+    private String pendingScanSerial   = null;
+    private String pendingScanFlaskUrl = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
-        // FIX 2: Only start AgentService if it isn't already running.
-        // The service is START_STICKY so it restarts itself — MainActivity
-        // calling startForegroundService on every onCreate was the source
-        // of duplicate onStartCommand calls and the thread explosion.
-        // ContextCompat.startForegroundService is safe to call on an already-
-        // running service (it just delivers another onStartCommand), but with
-        // the started guard in AgentService that's now a no-op.
         ContextCompat.startForegroundService(
                 this, new Intent(this, AgentService.class));
     }
@@ -37,19 +33,14 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         refresh();
 
-        // FIX 3: If the user just returned from the All Files Access settings
-        // screen after granting permission, kick off the pending scan now.
+        // If returning from permission dialog with a pending scan, fire it now.
         if (pendingScanType != null) {
-            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R
-                    || android.os.Environment.isExternalStorageManager()) {
-                SharedPreferences prefs =
-                        getSharedPreferences("zeroaxis", MODE_PRIVATE);
-                String serial   = prefs.getString("serial", "");
-                String flaskUrl = loadFlaskUrl();
-                AVScanService.startScan(this, pendingScanType, flaskUrl, serial);
-                ((TextView) findViewById(R.id.tvLastScan)).setText("Scan started…");
-                pendingScanType = null;
-            }
+            String type     = pendingScanType;
+            String serial   = pendingScanSerial;
+            String flaskUrl = pendingScanFlaskUrl;
+            pendingScanType = null;
+            AVScanService.startScan(this, type, flaskUrl, serial);
+            ((TextView) findViewById(R.id.tvLastScan)).setText("Scan started…");
         }
     }
 
@@ -90,13 +81,7 @@ public class MainActivity extends AppCompatActivity {
         btnSigs.setOnClickListener(v  -> updateSignatures());
     }
 
-    private static final int REQ_MEDIA_PERMISSIONS = 2001;
-    private String pendingScanSerial  = null;
-    private String pendingScanFlaskUrl = null;
-
     private void startScan(String type, String serial, String flaskUrl) {
-        // On Android 13+, request granular media permissions — these ARE grantable
-        // on Samsung Android 15 without Play Store approval, unlike MANAGE_EXTERNAL_STORAGE.
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             boolean hasImages = checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES)
                     == android.content.pm.PackageManager.PERMISSION_GRANTED;
@@ -106,7 +91,6 @@ public class MainActivity extends AppCompatActivity {
                     == android.content.pm.PackageManager.PERMISSION_GRANTED;
 
             if (!hasImages || !hasVideo || !hasAudio) {
-                // Save what scan was requested so onRequestPermissionsResult can resume it.
                 pendingScanType     = type;
                 pendingScanSerial   = serial;
                 pendingScanFlaskUrl = flaskUrl;
@@ -117,23 +101,11 @@ public class MainActivity extends AppCompatActivity {
                 }, REQ_MEDIA_PERMISSIONS);
                 return;
             }
-        } else if ("full".equals(type)
-                && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R
-                && !android.os.Environment.isExternalStorageManager()) {
-            // Android 11-12: fall back to MANAGE_EXTERNAL_STORAGE for full scan only.
-            pendingScanType     = type;
-            pendingScanSerial   = serial;
-            pendingScanFlaskUrl = flaskUrl;
-            Intent intent = new Intent(
-                    android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
-            intent.setData(android.net.Uri.parse("package:" + getPackageName()));
-            startActivity(intent);
-            Toast.makeText(this,
-                    "Grant All Files Access for full scan, then return",
-                    Toast.LENGTH_LONG).show();
-            return;
         }
-
+        // Permissions satisfied — start scan directly.
+        // Full scan degrades to quick inside AVScanService if needed.
+        // We never launch any external picker activity — doing so creates
+        // stale tasks in the back stack that cause the restart loop.
         pendingScanType = null;
         AVScanService.startScan(this, type, flaskUrl, serial);
         ((TextView) findViewById(R.id.tvLastScan)).setText("Scan started…");
@@ -144,8 +116,6 @@ public class MainActivity extends AppCompatActivity {
             String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQ_MEDIA_PERMISSIONS && pendingScanType != null) {
-            // Proceed regardless of whether user granted or denied —
-            // even partial grants let us scan more than nothing.
             String type     = pendingScanType;
             String serial   = pendingScanSerial;
             String flaskUrl = pendingScanFlaskUrl;
