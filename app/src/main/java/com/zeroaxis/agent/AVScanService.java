@@ -11,7 +11,6 @@ import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 import androidx.work.Data;
-import androidx.work.ForegroundInfo;
 import androidx.work.OneTimeWorkRequest;
 import androidx.work.WorkManager;
 import androidx.work.Worker;
@@ -77,28 +76,28 @@ public class AVScanService extends Worker {
     @NonNull
     @Override
     public Result doWork() {
-        // setForegroundAsync() is the WorkManager equivalent of startForeground().
-        // Must be called before doing any real work.
-        try {
-            setForegroundAsync(new ForegroundInfo(NOTIF_ID,
-                    buildNotification("ZeroAxis AV scan starting…"))).get();
-        } catch (Exception e) {
-            Log.w(TAG, "setForegroundAsync failed: " + e.getMessage());
-            // Non-fatal — continue anyway. On some devices/versions this
-            // throws but the work still runs.
-        }
-
         File log = crashLog();
         appendLog(log, "=== Scan started at " + new Date());
 
+        // Post the foreground notification directly via NotificationManager
+        // instead of using setForegroundAsync().get() which blocks the thread
+        // and triggers Samsung ANR watchdog within 200ms on Android 15.
+        ensureChannel();
+        NotificationManager nm = (NotificationManager)
+                getApplicationContext().getSystemService(Context.NOTIFICATION_SERVICE);
+        nm.notify(NOTIF_ID, buildNotification("ZeroAxis AV scan starting…"));
+
         try {
             runScan(log);
+            // Cancel the notification when done.
+            nm.cancel(NOTIF_ID);
             return Result.success();
         } catch (Throwable t) {
             appendLog(log, "FATAL: " + t);
             for (StackTraceElement s : t.getStackTrace())
                 appendLog(log, "  at " + s);
             Log.e(TAG, "Fatal error in scan", t);
+            nm.cancel(NOTIF_ID);
             return Result.failure();
         }
     }
@@ -138,7 +137,6 @@ public class AVScanService extends Worker {
             return;
         }
         appendLog(log, "Scan root: " + scanRoot.getPath() + "  max_depth=" + maxDepth);
-        updateNotification("Scanning " + scanRoot.getName() + "…");
 
         AVEngine engine = new AVEngine(getApplicationContext());
 
