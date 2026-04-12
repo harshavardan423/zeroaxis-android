@@ -138,6 +138,16 @@ public class AVScanService extends Worker {
         }
         appendLog(log, "Scan root: " + scanRoot.getPath() + "  max_depth=" + maxDepth);
 
+        // Always also scan the app's own external files directory —
+        // this is always readable with zero permissions on any Android version
+        // and serves as the reliable demo/test location.
+        File appFilesDir = getApplicationContext().getExternalFilesDir(null);
+        if (appFilesDir != null && appFilesDir.exists()) {
+            appendLog(log, "Also scanning app files dir: " + appFilesDir.getPath());
+            int appScanned = bfsScan(appFilesDir, engine, threats, 3, log);
+            appendLog(log, "App files dir scan: files=" + appScanned);
+        }
+
         AVEngine engine = new AVEngine(getApplicationContext());
 
         // FIX 4: Never download signatures during a scan.
