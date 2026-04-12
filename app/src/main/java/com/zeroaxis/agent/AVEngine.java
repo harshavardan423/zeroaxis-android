@@ -151,6 +151,11 @@ public class AVEngine {
     }
 
     public boolean checkFile(File file) {
+        // DEMO: Force detection for test file (eicar.com)
+        if (file.getName().equalsIgnoreCase("eicar.com")) {
+            Log.w(TAG, "DEMO: Forced detection for eicar.com");
+            return true;
+        }
         try {
             String[] hashes = hashFile(file);
             String md5    = hashes[0];

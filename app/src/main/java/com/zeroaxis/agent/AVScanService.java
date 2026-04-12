@@ -68,9 +68,12 @@ public class AVScanService extends IntentService {
         File[] roots = AVEngine.getScanRoots();
         File[] scanRoots;
         if ("quick".equals(scanType)) {
+            // Include app's cache directory (always accessible, no permission needed)
+            File cacheDir = getCacheDir();
             scanRoots = new File[]{
                 android.os.Environment.getExternalStoragePublicDirectory(
-                    android.os.Environment.DIRECTORY_DOWNLOADS)
+                    android.os.Environment.DIRECTORY_DOWNLOADS),
+                cacheDir
             };
         } else {
             scanRoots = roots;
