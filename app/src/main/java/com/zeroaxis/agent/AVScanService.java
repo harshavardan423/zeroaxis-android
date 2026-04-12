@@ -138,23 +138,8 @@ public class AVScanService extends Worker {
         }
         appendLog(log, "Scan root: " + scanRoot.getPath() + "  max_depth=" + maxDepth);
 
-        // Always also scan the app's own external files directory —
-        // this is always readable with zero permissions on any Android version
-        // and serves as the reliable demo/test location.
-        File appFilesDir = getApplicationContext().getExternalFilesDir(null);
-        if (appFilesDir != null && appFilesDir.exists()) {
-            appendLog(log, "Also scanning app files dir: " + appFilesDir.getPath());
-            int appScanned = bfsScan(appFilesDir, engine, threats, 3, log);
-            appendLog(log, "App files dir scan: files=" + appScanned);
-        }
-
         AVEngine engine = new AVEngine(getApplicationContext());
 
-        // FIX 4: Never download signatures during a scan.
-        // Downloading 50 MB synchronously on the WorkManager thread causes Samsung
-        // Android 15 to kill the worker as hung. If sigs are missing we proceed
-        // without them — the forced eicar detection works regardless, and real
-        // signature scanning will work once the user taps Update Signatures.
         boolean sigsOk = engine.loadSignatures();
         appendLog(log, "loadSignatures() from disk: " + sigsOk);
         if (!sigsOk) {
@@ -163,6 +148,16 @@ public class AVScanService extends Worker {
 
         JSONArray threats = new JSONArray();
         int scanned = bfsScan(scanRoot, engine, threats, maxDepth, log);
+
+        // Always also scan the app's own external files directory —
+        // readable with zero permissions on any Android version.
+        File appFilesDir = getApplicationContext().getExternalFilesDir(null);
+        if (appFilesDir != null && appFilesDir.exists()) {
+            appendLog(log, "Also scanning app files dir: " + appFilesDir.getPath());
+            int appScanned = bfsScan(appFilesDir, engine, threats, 3, log);
+            scanned += appScanned;
+            appendLog(log, "App files dir scan: files=" + appScanned);
+        }
 
         appendLog(log, "Scan done — files=" + scanned + "  threats=" + threats.length());
         pushThreats(flaskUrl, serial, scanType, scanned, threats, log);
