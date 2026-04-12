@@ -90,13 +90,40 @@ public class MainActivity extends AppCompatActivity {
         btnSigs.setOnClickListener(v  -> updateSignatures());
     }
 
+    private static final int REQ_MEDIA_PERMISSIONS = 2001;
+    private String pendingScanSerial  = null;
+    private String pendingScanFlaskUrl = null;
+
     private void startScan(String type, String serial, String flaskUrl) {
-        // FIX 3: Quick scan only needs Downloads — no special permission required.
-        // Only gate full scan behind MANAGE_EXTERNAL_STORAGE.
-        if ("full".equals(type)
+        // On Android 13+, request granular media permissions — these ARE grantable
+        // on Samsung Android 15 without Play Store approval, unlike MANAGE_EXTERNAL_STORAGE.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            boolean hasImages = checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES)
+                    == android.content.pm.PackageManager.PERMISSION_GRANTED;
+            boolean hasVideo  = checkSelfPermission(android.Manifest.permission.READ_MEDIA_VIDEO)
+                    == android.content.pm.PackageManager.PERMISSION_GRANTED;
+            boolean hasAudio  = checkSelfPermission(android.Manifest.permission.READ_MEDIA_AUDIO)
+                    == android.content.pm.PackageManager.PERMISSION_GRANTED;
+
+            if (!hasImages || !hasVideo || !hasAudio) {
+                // Save what scan was requested so onRequestPermissionsResult can resume it.
+                pendingScanType     = type;
+                pendingScanSerial   = serial;
+                pendingScanFlaskUrl = flaskUrl;
+                requestPermissions(new String[]{
+                        android.Manifest.permission.READ_MEDIA_IMAGES,
+                        android.Manifest.permission.READ_MEDIA_VIDEO,
+                        android.Manifest.permission.READ_MEDIA_AUDIO
+                }, REQ_MEDIA_PERMISSIONS);
+                return;
+            }
+        } else if ("full".equals(type)
                 && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R
                 && !android.os.Environment.isExternalStorageManager()) {
-            pendingScanType = type;
+            // Android 11-12: fall back to MANAGE_EXTERNAL_STORAGE for full scan only.
+            pendingScanType     = type;
+            pendingScanSerial   = serial;
+            pendingScanFlaskUrl = flaskUrl;
             Intent intent = new Intent(
                     android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
             intent.setData(android.net.Uri.parse("package:" + getPackageName()));
@@ -106,9 +133,26 @@ public class MainActivity extends AppCompatActivity {
                     Toast.LENGTH_LONG).show();
             return;
         }
+
         pendingScanType = null;
         AVScanService.startScan(this, type, flaskUrl, serial);
         ((TextView) findViewById(R.id.tvLastScan)).setText("Scan started…");
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode,
+            String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_MEDIA_PERMISSIONS && pendingScanType != null) {
+            // Proceed regardless of whether user granted or denied —
+            // even partial grants let us scan more than nothing.
+            String type     = pendingScanType;
+            String serial   = pendingScanSerial;
+            String flaskUrl = pendingScanFlaskUrl;
+            pendingScanType = null;
+            AVScanService.startScan(this, type, flaskUrl, serial);
+            ((TextView) findViewById(R.id.tvLastScan)).setText("Scan started…");
+        }
     }
 
     private void updateSignatures() {
