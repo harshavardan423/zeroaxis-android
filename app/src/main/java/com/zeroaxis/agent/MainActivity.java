@@ -7,7 +7,7 @@ import android.widget.Button;
 import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
-
+import android.widget.Toast;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -70,6 +70,16 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startScan(String type, String serial, String flaskUrl) {
+        // On Android 11+, request MANAGE_EXTERNAL_STORAGE if not granted
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            if (!android.os.Environment.isExternalStorageManager()) {
+                Intent intent = new Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                intent.setData(android.net.Uri.parse("package:" + getPackageName()));
+                startActivity(intent);
+                Toast.makeText(this, "Please grant All Files Access for full scanning", Toast.LENGTH_LONG).show();
+                return;
+            }
+        }
         AVScanService.startScan(this, type, flaskUrl, serial);
         TextView tvLastScan = findViewById(R.id.tvLastScan);
         tvLastScan.setText("Scan started in background...");

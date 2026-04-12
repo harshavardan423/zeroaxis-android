@@ -48,6 +48,14 @@ public class AVScanService extends IntentService {
             String serial   = intent.getStringExtra(EXTRA_SERIAL);
             if (scanType == null) scanType = "quick";
 
+            // Check for MANAGE_EXTERNAL_STORAGE permission (Android 11+)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                if (!android.os.Environment.isExternalStorageManager()) {
+                    Log.e(TAG, "MANAGE_EXTERNAL_STORAGE not granted. Cannot scan external storage.");
+                    return;
+                }
+            }
+
             Log.i(TAG, "Starting " + scanType + " scan");
 
             AVEngine engine = new AVEngine(this);

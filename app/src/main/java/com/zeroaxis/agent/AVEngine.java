@@ -36,12 +36,7 @@ public class AVEngine {
     // ── Scan roots (Option B – no special permissions) ─────────────────────────
     public static File[] getScanRoots() {
         return new File[]{
-            android.os.Environment.getExternalStoragePublicDirectory(
-                android.os.Environment.DIRECTORY_DOWNLOADS),
-            android.os.Environment.getExternalStoragePublicDirectory(
-                android.os.Environment.DIRECTORY_DOCUMENTS),
-            android.os.Environment.getExternalStoragePublicDirectory(
-                android.os.Environment.DIRECTORY_DCIM),
+            android.os.Environment.getExternalStorageDirectory()
         };
     }
 
