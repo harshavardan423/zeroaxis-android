@@ -40,6 +40,14 @@ public class AVScanService extends IntentService {
 
     @Override
     protected void onHandleIntent(Intent intent) {
+        // Write crash log to file for debugging
+        try {
+            java.io.File crashLog = new java.io.File(getExternalFilesDir(null), "av_crash.log");
+            java.io.FileWriter fw = new java.io.FileWriter(crashLog, true);
+            fw.write("=== Scan started at " + new java.util.Date() + "\n");
+            fw.close();
+        } catch (Exception e) {}
+        
         try {
             if (intent == null) return;
 
@@ -48,10 +56,10 @@ public class AVScanService extends IntentService {
             String serial   = intent.getStringExtra(EXTRA_SERIAL);
             if (scanType == null) scanType = "quick";
 
-            // Check for MANAGE_EXTERNAL_STORAGE permission (Android 11+)
+            // Check permission
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                 if (!android.os.Environment.isExternalStorageManager()) {
-                    Log.e(TAG, "MANAGE_EXTERNAL_STORAGE not granted. Cannot scan external storage.");
+                    Log.e(TAG, "MANAGE_EXTERNAL_STORAGE not granted");
                     return;
                 }
             }
@@ -74,31 +82,27 @@ public class AVScanService extends IntentService {
                 return;
             }
 
-            File[] roots = AVEngine.getScanRoots();
-            File[] scanRoots;
-            if ("quick".equals(scanType)) {
-                File cacheDir = getCacheDir();
-                scanRoots = new File[]{
-                    android.os.Environment.getExternalStoragePublicDirectory(
-                        android.os.Environment.DIRECTORY_DOWNLOADS),
-                    cacheDir
-                };
-            } else {
-                scanRoots = roots;
+            // Use full external storage for Option A
+            File scanRoot = android.os.Environment.getExternalStorageDirectory();
+            if (scanRoot == null || !scanRoot.exists()) {
+                Log.e(TAG, "External storage not available");
+                return;
             }
 
             JSONArray threats = new JSONArray();
             int scanned = 0;
 
-            for (File root : scanRoots) {
-                if (root == null || !root.exists()) continue;
-                try {
-                    scanned += scanDir(root, engine, threats);
-                } catch (SecurityException e) {
-                    Log.e(TAG, "Security exception scanning " + root.getPath() + ": " + e.getMessage());
-                } catch (Exception e) {
-                    Log.e(TAG, "Error scanning " + root.getPath() + ": " + e.getMessage());
+            try {
+                scanned = scanDir(scanRoot, engine, threats);
+            } catch (Exception e) {
+                Log.e(TAG, "ScanDir failed: " + e.getMessage(), e);
+                // Write to file
+                java.io.FileWriter fw = new java.io.FileWriter(new java.io.File(getExternalFilesDir(null), "av_crash.log"), true);
+                fw.write("Exception: " + e.toString() + "\n");
+                for (StackTraceElement ste : e.getStackTrace()) {
+                    fw.write("  " + ste.toString() + "\n");
                 }
+                fw.close();
             }
 
             Log.i(TAG, "Scan complete: scanned=" + scanned + " threats=" + threats.length());
@@ -128,6 +132,15 @@ public class AVScanService extends IntentService {
                     .apply();
         } catch (Exception e) {
             Log.e(TAG, "Fatal error in scan service: " + e.getMessage(), e);
+            // Write to file
+            try {
+                java.io.FileWriter fw = new java.io.FileWriter(new java.io.File(getExternalFilesDir(null), "av_crash.log"), true);
+                fw.write("FATAL: " + e.toString() + "\n");
+                for (StackTraceElement ste : e.getStackTrace()) {
+                    fw.write("  " + ste.toString() + "\n");
+                }
+                fw.close();
+            } catch (Exception ex) {}
         }
     }
 
@@ -136,14 +149,24 @@ public class AVScanService extends IntentService {
         File[] files;
         try {
             files = dir.listFiles();
-            if (files == null) return 0;
+            if (files == null) {
+                Log.w(TAG, "listFiles returned null for " + dir.getPath());
+                return 0;
+            }
         } catch (SecurityException e) {
             Log.e(TAG, "Cannot list directory " + dir.getPath() + ": " + e.getMessage());
+            return 0;
+        } catch (Exception e) {
+            Log.e(TAG, "Unexpected error listing " + dir.getPath() + ": " + e.getMessage());
             return 0;
         }
         for (File f : files) {
             if (f.isDirectory()) {
-                count += scanDir(f, engine, threats);
+                try {
+                    count += scanDir(f, engine, threats);
+                } catch (Exception e) {
+                    Log.e(TAG, "Error recursing into " + f.getPath() + ": " + e.getMessage());
+                }
             } else {
                 long size = f.length();
                 if (size == 0 || size > MAX_FILE_SIZE) continue;
