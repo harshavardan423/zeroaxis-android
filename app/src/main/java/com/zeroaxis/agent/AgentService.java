@@ -48,7 +48,7 @@ public class AgentService extends Service {
     // FIX 1: Guard flag — onStartCommand must only wire up runnables once.
     // Without this, every call to startForegroundService() re-enters
     // onStartCommand and adds duplicate runnables + spawns extra threads.
-    private boolean started = false;
+    private static boolean started = false;
 
     private void log(String msg) {
         if (DEBUG_LOG == null) return;
