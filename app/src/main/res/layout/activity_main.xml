@@ -76,7 +76,7 @@
 
     <Button android:id="@+id/btnUpdateSigs"
         android:text="Update Signatures"
-        android:style="@style/Widget.AppCompat.Button.Borderless"
+        style="@style/Widget.AppCompat.Button.Borderless"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"/>
 
