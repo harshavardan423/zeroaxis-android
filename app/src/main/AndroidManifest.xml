@@ -72,9 +72,6 @@
             android:exported="false"
             android:screenOrientation="portrait" />
 
-        <service
-            android:name=".AVScanService"
-            android:exported="false" />
         
     </application>
 </manifest>
