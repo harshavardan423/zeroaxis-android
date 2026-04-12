@@ -297,7 +297,11 @@ public class AVEngine {
     }
 
     public File getQuarantineDir() {
-        File dir = new File(ctx.getFilesDir(), "quarantine");
+        // Use external files dir so renameTo works for files on external storage.
+        // Falls back to internal if external isn't available.
+        File base = ctx.getExternalFilesDir(null);
+        if (base == null) base = ctx.getFilesDir();
+        File dir = new File(base, "quarantine");
         dir.mkdirs();
         return dir;
     }
@@ -305,12 +309,41 @@ public class AVEngine {
     public String quarantineFile(String path) {
         try {
             File src  = new File(path);
+            if (!src.exists()) {
+                Log.e(TAG, "Quarantine: source not found: " + path);
+                return null;
+            }
             File dest = new File(getQuarantineDir(), src.getName() + ".quar");
-            if (src.renameTo(dest)) return dest.getAbsolutePath();
+
+            // Try renameTo first (fast, same mount point).
+            if (src.renameTo(dest)) {
+                Log.i(TAG, "Quarantined via rename: " + dest.getAbsolutePath());
+                return dest.getAbsolutePath();
+            }
+
+            // renameTo fails across mount points — fall back to copy then delete.
+            java.io.FileInputStream  fis = new java.io.FileInputStream(src);
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(dest);
+            byte[] buf = new byte[65536];
+            int n;
+            while ((n = fis.read(buf)) != -1) fos.write(buf, 0, n);
+            fis.close();
+            fos.close();
+
+            // Only delete source after successful copy.
+            if (dest.exists() && dest.length() == src.length()) {
+                src.delete();
+                Log.i(TAG, "Quarantined via copy+delete: " + dest.getAbsolutePath());
+                return dest.getAbsolutePath();
+            } else {
+                Log.e(TAG, "Quarantine copy failed — dest size mismatch");
+                dest.delete();
+                return null;
+            }
         } catch (Exception e) {
             Log.e(TAG, "Quarantine failed: " + e.getMessage());
+            return null;
         }
-        return null;
     }
 
     public boolean deleteFile(String path) {
