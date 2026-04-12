@@ -111,6 +111,7 @@ public class EnrollmentActivity extends AppCompatActivity {
         if (savedSerial != null) {
             log("Already enrolled, starting service");
             ContextCompat.startForegroundService(this, new Intent(this, AgentService.class));
+            startActivity(new Intent(this, MainActivity.class));
             finish();
             return;
         }
@@ -447,14 +448,12 @@ public class EnrollmentActivity extends AppCompatActivity {
         Intent svc = new Intent(this, AgentService.class);
         ContextCompat.startForegroundService(this, svc);
 
-        statusText.setText("✓ Device enrolled!\n✓ Location permission set\n" +
-                "✓ Usage access configured\n✓ Agent service started\n\n" +
-                "You can close this app.");
-        enrollButton.setText("Done");
-        enrollButton.setEnabled(true);
-        enrollButton.setOnClickListener(v -> finish());
-        enrollStep = 5;
-        log("Enrollment finished");
+        // Launch MainActivity instead of finishing (so user sees status screen)
+        Intent main = new Intent(this, MainActivity.class);
+        main.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        startActivity(main);
+        finish();
+        log("Enrollment finished, launched MainActivity");
     }
 
     private void installHeadwindSilent() {

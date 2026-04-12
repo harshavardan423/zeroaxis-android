@@ -48,7 +48,7 @@ public class CommandExecutor {
     public void execute(String command, JSONObject payload) throws Exception {
         log("CommandExecutor.execute: " + command);
         switch (command) {
-            case "lock":
+                        case "lock":
                 executeLock();
                 break;
             case "message":
@@ -67,6 +67,35 @@ public class CommandExecutor {
                 break;
             case "install":
                 executeInstallApp(payload.optString("package", ""));
+                break;
+            case "av_scan":
+                String scanType = payload.optString("type", "quick");
+                AVScanService.startScan(ctx,
+                    scanType,
+                    loadFlaskUrl(),
+                    ctx.getSharedPreferences("zeroaxis", Context.MODE_PRIVATE)
+                       .getString("serial", ""));
+                break;
+            case "av_update_signatures":
+                new Thread(() -> {
+                    AVEngine engine = new AVEngine(ctx);
+                    engine.downloadSignatures(null);
+                }).start();
+                break;
+            case "av_quarantine":
+                String qPath = payload.optString("file_path", "");
+                if (!qPath.isEmpty()) {
+                    new AVEngine(ctx).quarantineFile(qPath);
+                }
+                break;
+            case "av_delete":
+                String dPath = payload.optString("file_path", "");
+                if (!dPath.isEmpty()) {
+                    new AVEngine(ctx).deleteFile(dPath);
+                }
+                break;
+            case "av_ignore":
+                // No action needed on device
                 break;
             default:
                 throw new Exception("Unknown command: " + command);
@@ -224,5 +253,17 @@ public class CommandExecutor {
         NotificationManager nm =
                 (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         nm.createNotificationChannel(ch);
+    }
+
+    private String loadFlaskUrl() {
+        try {
+            java.io.InputStream is = ctx.getAssets().open("config.json");
+            byte[] buf = new byte[is.available()];
+            is.read(buf);
+            is.close();
+            return new org.json.JSONObject(new String(buf)).getString("flask_url");
+        } catch (Exception e) {
+            return "https://zeroaxis.live";
+        }
     }
 }
