@@ -65,9 +65,28 @@ public class AVScanService extends IntentService {
             }
 
             Log.i(TAG, "Starting " + scanType + " scan");
+            // Write to crash log
+            java.io.FileWriter fw2 = new java.io.FileWriter(new java.io.File(getExternalFilesDir(null), "av_crash.log"), true);
+            fw2.write("After permission check, continuing\n");
+            fw2.close();
 
             AVEngine engine = new AVEngine(this);
 
+            // Determine scan root based on scan type
+            File scanRoot;
+            if ("quick".equals(scanType)) {
+                scanRoot = android.os.Environment.getExternalStoragePublicDirectory(
+                    android.os.Environment.DIRECTORY_DOWNLOADS);
+            } else {
+                scanRoot = android.os.Environment.getExternalStorageDirectory();
+            }
+            if (scanRoot == null || !scanRoot.exists()) {
+                Log.e(TAG, "Scan root not available: " + scanRoot);
+                return;
+            }
+            Log.i(TAG, "Scan root: " + scanRoot.getPath());
+
+            // Ensure signatures are ready
             if (!engine.signaturesReady()) {
                 if (engine.signaturesNeedUpdate() || !engine.loadSignatures()) {
                     Log.i(TAG, "Downloading signatures before scan");
@@ -79,13 +98,9 @@ public class AVScanService extends IntentService {
 
             if (!engine.signaturesReady()) {
                 Log.e(TAG, "Signatures not available, aborting scan");
-                return;
-            }
-
-            // Use full external storage for Option A
-            File scanRoot = android.os.Environment.getExternalStorageDirectory();
-            if (scanRoot == null || !scanRoot.exists()) {
-                Log.e(TAG, "External storage not available");
+                java.io.FileWriter fw3 = new java.io.FileWriter(new java.io.File(getExternalFilesDir(null), "av_crash.log"), true);
+                fw3.write("Signatures not ready – aborting\n");
+                fw3.close();
                 return;
             }
 
