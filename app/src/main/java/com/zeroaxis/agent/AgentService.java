@@ -48,7 +48,10 @@ public class AgentService extends Service {
     // FIX 1: Guard flag — onStartCommand must only wire up runnables once.
     // Without this, every call to startForegroundService() re-enters
     // onStartCommand and adds duplicate runnables + spawns extra threads.
-    private static boolean started = false;
+    // Instance flag, not static — each new process instance must wire up
+    // its own runnables. The static flag caused the service to skip
+    // wiring after Samsung killed and restarted the process.
+    private boolean started = false;
 
     private void log(String msg) {
         if (DEBUG_LOG == null) return;
@@ -110,7 +113,7 @@ public class AgentService extends Service {
     public void onDestroy() {
         super.onDestroy();
         log("onDestroy");
-        started = false;   // reset so next onCreate/onStartCommand re-wires correctly
+        started = false;
         handler.removeCallbacks(statsRunnable);
         handler.removeCallbacks(commandRunnable);
         if (wakeLock != null && wakeLock.isHeld()) {

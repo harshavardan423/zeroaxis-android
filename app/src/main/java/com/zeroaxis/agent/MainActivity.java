@@ -3,6 +3,8 @@ package com.zeroaxis.agent;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.widget.Button;
 import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
@@ -16,9 +18,30 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int REQ_MEDIA_PERMISSIONS = 2001;
 
-    private String pendingScanType     = null;
-    private String pendingScanSerial   = null;
-    private String pendingScanFlaskUrl = null;
+    private String  pendingScanType     = null;
+    private String  pendingScanSerial   = null;
+    private String  pendingScanFlaskUrl = null;
+    private boolean scanInProgress      = false;
+
+    // Polls SharedPreferences every 2 seconds while a scan is in progress
+    // so the UI updates without needing the user to reopen the app.
+    private final Handler     uiHandler    = new Handler(Looper.getMainLooper());
+    private final Runnable    pollRunnable = new Runnable() {
+        @Override public void run() {
+            SharedPreferences prefs =
+                    getSharedPreferences("zeroaxis", MODE_PRIVATE);
+            long lastScan = prefs.getLong("av_last_scan", 0);
+            if (lastScan > scanStartedAt) {
+                // Scan completed — refresh UI and stop polling.
+                scanInProgress = false;
+                refresh();
+            } else {
+                // Still running — poll again in 2 seconds.
+                uiHandler.postDelayed(this, 2000);
+            }
+        }
+    };
+    private long scanStartedAt = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -33,15 +56,20 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         refresh();
 
-        // If returning from permission dialog with a pending scan, fire it now.
         if (pendingScanType != null) {
             String type     = pendingScanType;
             String serial   = pendingScanSerial;
             String flaskUrl = pendingScanFlaskUrl;
             pendingScanType = null;
-            AVScanService.startScan(this, type, flaskUrl, serial);
-            ((TextView) findViewById(R.id.tvLastScan)).setText("Scan started…");
+            launchScan(type, serial, flaskUrl);
         }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // Stop polling when app goes to background — no need to update hidden UI.
+        uiHandler.removeCallbacks(pollRunnable);
     }
 
     private void refresh() {
@@ -65,9 +93,11 @@ public class MainActivity extends AppCompatActivity {
         tvServer.setText("Server: " + flaskUrl);
         tvStatus.setText("Agent: Running ✓");
 
-        tvLastScan.setText(lastScan == 0 ? "Last scan: Never"
-                : "Last " + scanType + " scan: " + new SimpleDateFormat(
-                        "dd MMM yyyy HH:mm", Locale.US).format(new Date(lastScan)));
+        if (!scanInProgress) {
+            tvLastScan.setText(lastScan == 0 ? "Last scan: Never"
+                    : "Last " + scanType + " scan: " + new SimpleDateFormat(
+                            "dd MMM yyyy HH:mm", Locale.US).format(new Date(lastScan)));
+        }
 
         tvThreats.setText(threats > 0
                 ? "⚠ " + threats + " threat(s) detected"
@@ -102,13 +132,18 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
         }
-        // Permissions satisfied — start scan directly.
-        // Full scan degrades to quick inside AVScanService if needed.
-        // We never launch any external picker activity — doing so creates
-        // stale tasks in the back stack that cause the restart loop.
+        launchScan(type, serial, flaskUrl);
+    }
+
+    private void launchScan(String type, String serial, String flaskUrl) {
         pendingScanType = null;
+        scanInProgress  = true;
+        scanStartedAt   = System.currentTimeMillis();
         AVScanService.startScan(this, type, flaskUrl, serial);
-        ((TextView) findViewById(R.id.tvLastScan)).setText("Scan started…");
+        ((TextView) findViewById(R.id.tvLastScan)).setText("Scanning…");
+        // Start polling so the UI updates automatically when scan finishes.
+        uiHandler.removeCallbacks(pollRunnable);
+        uiHandler.postDelayed(pollRunnable, 2000);
     }
 
     @Override
@@ -119,9 +154,7 @@ public class MainActivity extends AppCompatActivity {
             String type     = pendingScanType;
             String serial   = pendingScanSerial;
             String flaskUrl = pendingScanFlaskUrl;
-            pendingScanType = null;
-            AVScanService.startScan(this, type, flaskUrl, serial);
-            ((TextView) findViewById(R.id.tvLastScan)).setText("Scan started…");
+            launchScan(type, serial, flaskUrl);
         }
     }
 

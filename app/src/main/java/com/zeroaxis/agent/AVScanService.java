@@ -66,9 +66,13 @@ public class AVScanService extends Worker {
 
         OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(AVScanService.class)
                 .setInputData(inputData)
+                .addTag("av_scan")
                 .build();
 
-        WorkManager.getInstance(ctx).enqueue(request);
+        WorkManager.getInstance(ctx)
+                .enqueueUniqueWork("av_scan",
+                        androidx.work.ExistingWorkPolicy.KEEP,
+                        request);
     }
 
     // ── WorkManager callback ──────────────────────────────────────────────────
