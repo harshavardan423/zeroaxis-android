@@ -7,6 +7,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
+import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -23,6 +24,13 @@ public class AVEngine {
     };
     private static final int SIG_MAX_AGE_DAYS = 7;
 
+    // Safety cap: no single bloom filter should need more than 64 MB of bits.
+    // The real Hypatia filters are ~8–16 MB each. 1.7 GB means a corrupt header.
+    private static final long MAX_BLOOM_BITS_BYTES = 64L * 1024 * 1024;
+
+    // Minimum sane file size — a valid bloom binary is always at least 1 KB.
+    private static final long MIN_SIG_FILE_BYTES = 1024;
+
     private final Context ctx;
     private long[]   bloomM    = new long[3];
     private int[]    bloomK    = new int[3];
@@ -33,11 +41,8 @@ public class AVEngine {
         this.ctx = ctx;
     }
 
-    // ── Scan roots (Option B – no special permissions) ─────────────────────────
     public static File[] getScanRoots() {
-        return new File[]{
-            android.os.Environment.getExternalStorageDirectory()
-        };
+        return new File[]{ android.os.Environment.getExternalStorageDirectory() };
     }
 
     public File getSigDir() {
@@ -63,59 +68,175 @@ public class AVEngine {
         return false;
     }
 
+    // ── downloadSignatures ────────────────────────────────────────────────────
+    // FIX: write to a .tmp file first, verify size, then rename.
+    // This prevents a partial download from replacing a good file and
+    // prevents loadSignatures from reading a truncated header.
     public int downloadSignatures(ProgressCallback cb) {
         File dir = getSigDir();
         int count = 0;
+
         for (int i = 0; i < SIG_FILES.length; i++) {
             String fname = SIG_FILES[i];
-            if (cb != null) cb.onProgress("Downloading " + fname + "...", (float) i / SIG_FILES.length);
+            if (cb != null) cb.onProgress("Downloading " + fname + "...",
+                    (float) i / SIG_FILES.length);
+            File dest = new File(dir, fname);
+            File tmp  = new File(dir, fname + ".tmp");
+
             try {
-                File dest = new File(dir, fname);
-                URL url = new URL(SIG_SERVER + fname);
-                InputStream in = url.openStream();
-                FileOutputStream fos = new FileOutputStream(dest);
+                HttpURLConnection conn =
+                        (HttpURLConnection) new URL(SIG_SERVER + fname).openConnection();
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(60000);  // bloom files can be ~16 MB, give it time
+                conn.connect();
+
+                int responseCode = conn.getResponseCode();
+                if (responseCode != 200) {
+                    Log.e(TAG, "Download HTTP " + responseCode + " for " + fname);
+                    conn.disconnect();
+                    continue;
+                }
+
+                // Stream to .tmp
+                InputStream in = conn.getInputStream();
+                FileOutputStream fos = new FileOutputStream(tmp);
                 byte[] buf = new byte[65536];
                 int n;
-                while ((n = in.read(buf)) != -1) fos.write(buf, 0, n);
+                long written = 0;
+                while ((n = in.read(buf)) != -1) {
+                    fos.write(buf, 0, n);
+                    written += n;
+                }
                 in.close();
                 fos.close();
-                count++;
-                Log.i(TAG, "Downloaded " + fname);
+                conn.disconnect();
+
+                // Sanity check: reject if clearly too small to be a valid bloom file
+                if (written < MIN_SIG_FILE_BYTES) {
+                    Log.e(TAG, "Download too small (" + written + " bytes) for " + fname
+                            + " — discarding");
+                    tmp.delete();
+                    continue;
+                }
+
+                // Atomic replace: only overwrite the real file if tmp is good
+                if (dest.exists()) dest.delete();
+                if (tmp.renameTo(dest)) {
+                    count++;
+                    Log.i(TAG, "Downloaded " + fname + " (" + written + " bytes)");
+                } else {
+                    Log.e(TAG, "Rename failed for " + fname);
+                    tmp.delete();
+                }
+
             } catch (Exception e) {
-                Log.e(TAG, "Download failed: " + fname + " " + e.getMessage());
+                Log.e(TAG, "Download failed: " + fname + " — " + e.getMessage());
+                tmp.delete();
             }
         }
+
         if (cb != null) cb.onProgress("Loading signatures...", 0.95f);
         loadSignatures();
         if (cb != null) cb.onProgress("Done", 1.0f);
         return count;
     }
 
+    // ── loadSignatures ────────────────────────────────────────────────────────
+    // FIX: validate bloomM before allocating. A corrupt or partially-written
+    // file can produce a bloomM that would require gigabytes of RAM.
+    // We cap at MAX_BLOOM_BITS_BYTES and delete+skip the offending file.
     public boolean loadSignatures() {
         File dir = getSigDir();
         int ok = 0;
+
         for (int i = 0; i < SIG_FILES.length; i++) {
+            File f = new File(dir, SIG_FILES[i]);
+
+            // Skip missing files without logging an error — they just need downloading.
+            if (!f.exists()) {
+                Log.w(TAG, "Missing: " + SIG_FILES[i]);
+                bloomBits[i] = null;
+                continue;
+            }
+
+            // Reject files that are too small to have a valid 12-byte header.
+            if (f.length() < 12) {
+                Log.e(TAG, "File too small to be valid, deleting: " + SIG_FILES[i]);
+                f.delete();
+                bloomBits[i] = null;
+                continue;
+            }
+
             try {
-                File f = new File(dir, SIG_FILES[i]);
-                if (!f.exists()) continue;
                 RandomAccessFile raf = new RandomAccessFile(f, "r");
                 byte[] header = new byte[12];
                 raf.readFully(header);
                 ByteBuffer bb = ByteBuffer.wrap(header).order(ByteOrder.BIG_ENDIAN);
-                bloomM[i] = bb.getLong();
-                bloomK[i] = bb.getInt();
-                bloomBits[i] = new byte[(int) ((bloomM[i] + 7) / 8)];
+                long m = bb.getLong();
+                int  k = bb.getInt();
+
+                // FIX: validate m before allocating.
+                // (m + 7) / 8 is the number of bytes needed for the bit array.
+                long bytesNeeded = (m + 7) / 8;
+                if (m <= 0 || k <= 0 || k > 64 || bytesNeeded > MAX_BLOOM_BITS_BYTES) {
+                    Log.e(TAG, "Corrupt header in " + SIG_FILES[i]
+                            + ": m=" + m + " k=" + k
+                            + " bytesNeeded=" + bytesNeeded + " — deleting file");
+                    raf.close();
+                    f.delete();   // force re-download next time
+                    bloomBits[i] = null;
+                    continue;
+                }
+
+                // Safe to allocate now.
+                bloomM[i]    = m;
+                bloomK[i]    = k;
+                bloomBits[i] = new byte[(int) bytesNeeded];
                 raf.readFully(bloomBits[i]);
                 raf.close();
                 ok++;
-                Log.i(TAG, "Loaded " + SIG_FILES[i]);
+                Log.i(TAG, "Loaded " + SIG_FILES[i]
+                        + " m=" + m + " k=" + k
+                        + " bytes=" + bytesNeeded);
+
+            } catch (OutOfMemoryError oom) {
+                // Catch OOM explicitly so it lands in the crash log rather than
+                // killing the process silently.
+                Log.e(TAG, "OOM loading " + SIG_FILES[i] + " — deleting corrupt file");
+                new File(dir, SIG_FILES[i]).delete();
+                bloomBits[i] = null;
+
             } catch (Exception e) {
-                Log.e(TAG, "Load failed: " + SIG_FILES[i] + " " + e.getMessage());
+                Log.e(TAG, "Load failed: " + SIG_FILES[i] + " — " + e.getMessage());
+                bloomBits[i] = null;
             }
         }
+
         loaded = ok > 0;
+        Log.i(TAG, "loadSignatures: " + ok + "/" + SIG_FILES.length + " loaded");
         return loaded;
     }
+
+    // ── checkFile ─────────────────────────────────────────────────────────────
+    public boolean checkFile(File file) {
+        String lower = file.getName().toLowerCase();
+        if (lower.equals("eicar.com") || lower.startsWith("eicar.com.")) {
+            Log.w(TAG, "DEMO: Forced detection for " + file.getName());
+            return true;
+        }
+        if (!loaded) return false;
+        try {
+            String[] hashes = hashFile(file);
+            if (hashes[0] != null && bloomBits[0] != null && bloomCheck(0, hashes[0])) return true;
+            if (hashes[1] != null && bloomBits[1] != null && bloomCheck(1, hashes[1])) return true;
+            if (hashes[2] != null && bloomBits[2] != null && bloomCheck(2, hashes[2])) return true;
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // ── Everything below is unchanged from your original ──────────────────────
 
     private boolean bloomCheck(int idx, String value) {
         if (bloomBits[idx] == null || bloomM[idx] == 0) return false;
@@ -143,26 +264,6 @@ public class AVEngine {
         for (int i = 0; i < Math.min(b.length, 16); i++)
             v = v * 31 + (b[i] & 0xFF);
         return v < 0 ? -v : v;
-    }
-
-    public boolean checkFile(File file) {
-        // DEMO: Force detection for test file (eicar.com)
-        if (file.getName().equalsIgnoreCase("eicar.com")) {
-            Log.w(TAG, "DEMO: Forced detection for eicar.com");
-            return true;
-        }
-        try {
-            String[] hashes = hashFile(file);
-            String md5    = hashes[0];
-            String sha1   = hashes[1];
-            String sha256 = hashes[2];
-            if (md5    != null && bloomBits[0] != null && bloomCheck(0, md5))    return true;
-            if (sha1   != null && bloomBits[1] != null && bloomCheck(1, sha1))   return true;
-            if (sha256 != null && bloomBits[2] != null && bloomCheck(2, sha256)) return true;
-            return false;
-        } catch (Exception e) {
-            return false;
-        }
     }
 
     public String[] hashFile(File file) {
