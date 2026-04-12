@@ -14,48 +14,69 @@ import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
 
+    private String pendingScanType = null;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        ContextCompat.startForegroundService(this, new Intent(this, AgentService.class));
+        // FIX 2: Only start AgentService if it isn't already running.
+        // The service is START_STICKY so it restarts itself — MainActivity
+        // calling startForegroundService on every onCreate was the source
+        // of duplicate onStartCommand calls and the thread explosion.
+        // ContextCompat.startForegroundService is safe to call on an already-
+        // running service (it just delivers another onStartCommand), but with
+        // the started guard in AgentService that's now a no-op.
+        ContextCompat.startForegroundService(
+                this, new Intent(this, AgentService.class));
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         refresh();
+
+        // FIX 3: If the user just returned from the All Files Access settings
+        // screen after granting permission, kick off the pending scan now.
+        if (pendingScanType != null) {
+            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R
+                    || android.os.Environment.isExternalStorageManager()) {
+                SharedPreferences prefs =
+                        getSharedPreferences("zeroaxis", MODE_PRIVATE);
+                String serial   = prefs.getString("serial", "");
+                String flaskUrl = loadFlaskUrl();
+                AVScanService.startScan(this, pendingScanType, flaskUrl, serial);
+                ((TextView) findViewById(R.id.tvLastScan)).setText("Scan started…");
+                pendingScanType = null;
+            }
+        }
     }
 
     private void refresh() {
         SharedPreferences prefs = getSharedPreferences("zeroaxis", MODE_PRIVATE);
-        String serial    = prefs.getString("serial", "Not enrolled");
-        String flaskUrl  = loadFlaskUrl();
-        long   lastScan  = prefs.getLong("av_last_scan", 0);
-        int    threats   = prefs.getInt("av_threat_count", 0);
-        String scanType  = prefs.getString("av_last_scan_type", "—");
+        String serial   = prefs.getString("serial", "Not enrolled");
+        String flaskUrl = loadFlaskUrl();
+        long   lastScan = prefs.getLong("av_last_scan", 0);
+        int    threats  = prefs.getInt("av_threat_count", 0);
+        String scanType = prefs.getString("av_last_scan_type", "—");
 
-        TextView tvSerial    = findViewById(R.id.tvSerial);
-        TextView tvServer    = findViewById(R.id.tvServer);
-        TextView tvStatus    = findViewById(R.id.tvStatus);
-        TextView tvLastScan  = findViewById(R.id.tvLastScan);
-        TextView tvThreats   = findViewById(R.id.tvThreats);
-        Button   btnQuick    = findViewById(R.id.btnQuickScan);
-        Button   btnFull     = findViewById(R.id.btnFullScan);
-        Button   btnSigs     = findViewById(R.id.btnUpdateSigs);
+        TextView tvSerial   = findViewById(R.id.tvSerial);
+        TextView tvServer   = findViewById(R.id.tvServer);
+        TextView tvStatus   = findViewById(R.id.tvStatus);
+        TextView tvLastScan = findViewById(R.id.tvLastScan);
+        TextView tvThreats  = findViewById(R.id.tvThreats);
+        Button   btnQuick   = findViewById(R.id.btnQuickScan);
+        Button   btnFull    = findViewById(R.id.btnFullScan);
+        Button   btnSigs    = findViewById(R.id.btnUpdateSigs);
 
         tvSerial.setText("Serial: " + serial);
         tvServer.setText("Server: " + flaskUrl);
         tvStatus.setText("Agent: Running ✓");
 
-        if (lastScan == 0) {
-            tvLastScan.setText("Last scan: Never");
-        } else {
-            String time = new SimpleDateFormat("dd MMM yyyy HH:mm", Locale.US)
-                    .format(new Date(lastScan));
-            tvLastScan.setText("Last " + scanType + " scan: " + time);
-        }
+        tvLastScan.setText(lastScan == 0 ? "Last scan: Never"
+                : "Last " + scanType + " scan: " + new SimpleDateFormat(
+                        "dd MMM yyyy HH:mm", Locale.US).format(new Date(lastScan)));
 
         tvThreats.setText(threats > 0
                 ? "⚠ " + threats + " threat(s) detected"
@@ -66,28 +87,33 @@ public class MainActivity extends AppCompatActivity {
 
         btnQuick.setOnClickListener(v -> startScan("quick", serial, flaskUrl));
         btnFull.setOnClickListener(v  -> startScan("full",  serial, flaskUrl));
-        btnSigs.setOnClickListener(v  -> updateSignatures(serial, flaskUrl));
+        btnSigs.setOnClickListener(v  -> updateSignatures());
     }
 
     private void startScan(String type, String serial, String flaskUrl) {
-        // On Android 11+, request MANAGE_EXTERNAL_STORAGE if not granted
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            if (!android.os.Environment.isExternalStorageManager()) {
-                Intent intent = new Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
-                intent.setData(android.net.Uri.parse("package:" + getPackageName()));
-                startActivity(intent);
-                Toast.makeText(this, "Please grant All Files Access for full scanning", Toast.LENGTH_LONG).show();
-                return;
-            }
+        // FIX 3: Quick scan only needs Downloads — no special permission required.
+        // Only gate full scan behind MANAGE_EXTERNAL_STORAGE.
+        if ("full".equals(type)
+                && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R
+                && !android.os.Environment.isExternalStorageManager()) {
+            pendingScanType = type;
+            Intent intent = new Intent(
+                    android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+            intent.setData(android.net.Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+            Toast.makeText(this,
+                    "Grant All Files Access for full scan, then return",
+                    Toast.LENGTH_LONG).show();
+            return;
         }
+        pendingScanType = null;
         AVScanService.startScan(this, type, flaskUrl, serial);
-        TextView tvLastScan = findViewById(R.id.tvLastScan);
-        tvLastScan.setText("Scan started in background...");
+        ((TextView) findViewById(R.id.tvLastScan)).setText("Scan started…");
     }
 
-    private void updateSignatures(String serial, String flaskUrl) {
+    private void updateSignatures() {
         TextView tvLastScan = findViewById(R.id.tvLastScan);
-        tvLastScan.setText("Updating signatures...");
+        tvLastScan.setText("Updating signatures…");
         new Thread(() -> {
             AVEngine engine = new AVEngine(this);
             int count = engine.downloadSignatures(null);

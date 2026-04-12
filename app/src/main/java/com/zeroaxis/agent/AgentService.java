@@ -6,8 +6,6 @@ import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
-import android.net.wifi.WifiInfo;
-import android.net.wifi.WifiManager;
 import android.os.BatteryManager;
 import android.os.Environment;
 import android.os.Handler;
@@ -19,6 +17,7 @@ import android.location.LocationManager;
 import androidx.core.app.NotificationCompat;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import java.io.File;
 import java.io.InputStream;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -29,15 +28,15 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
-import java.io.File;
 
 public class AgentService extends Service {
 
-    private static final String CHANNEL_ID       = "zeroaxis_agent";
-    private static final int    NOTIF_ID         = 1001;
-    private static final long   STATS_INTERVAL   = 30 * 1000L;
-    private static final long   COMMAND_INTERVAL =  10 * 1000L;
+    private static final String CHANNEL_ID             = "zeroaxis_agent";
+    private static final int    NOTIF_ID               = 1001;
+    private static final long   STATS_INTERVAL         = 30_000L;
+    private static final long   COMMAND_INTERVAL       = 10_000L;
     private static final long   INSTALLED_APPS_INTERVAL = 24 * 60 * 60 * 1000L;
+
     private static String DEBUG_LOG = null;
 
     private OkHttpClient client  = new OkHttpClient();
@@ -46,47 +45,64 @@ public class AgentService extends Service {
     private String serial;
     private android.os.PowerManager.WakeLock wakeLock;
 
+    // FIX 1: Guard flag — onStartCommand must only wire up runnables once.
+    // Without this, every call to startForegroundService() re-enters
+    // onStartCommand and adds duplicate runnables + spawns extra threads.
+    private boolean started = false;
+
     private void log(String msg) {
         if (DEBUG_LOG == null) return;
         try {
             java.io.FileWriter fw = new java.io.FileWriter(DEBUG_LOG, true);
-            fw.write(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()) + " - " + msg + "\n");
+            fw.write(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+                    .format(new java.util.Date()) + " - " + msg + "\n");
             fw.close();
-        } catch (Exception e) { }
+        } catch (Exception ignored) {}
     }
 
     @Override
     public void onCreate() {
         super.onCreate();
-        // Set log file in app's external files directory (no permission needed)
         File logDir = getExternalFilesDir(null);
-        if (logDir != null) {
-            DEBUG_LOG = new File(logDir, "zeroaxis_debug.log").getAbsolutePath();
-        } else {
-            DEBUG_LOG = getFilesDir() + "/zeroaxis_debug.log";
-        }
+        DEBUG_LOG = logDir != null
+                ? new File(logDir, "zeroaxis_debug.log").getAbsolutePath()
+                : getFilesDir() + "/zeroaxis_debug.log";
+
         flaskUrl = loadConfig();
         serial   = getSharedPreferences("zeroaxis", MODE_PRIVATE)
                        .getString("serial", android.os.Build.SERIAL);
-        log("AgentService onCreate, serial=" + serial + ", flaskUrl=" + flaskUrl);
+        log("AgentService onCreate serial=" + serial);
+
         createNotificationChannel();
         startForeground(NOTIF_ID, buildNotification());
 
-        android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
-        wakeLock = pm.newWakeLock(
-                android.os.PowerManager.PARTIAL_WAKE_LOCK,
-                "ZeroAxis::AgentWakeLock");
-        wakeLock.acquire();
-        log("WakeLock acquired");
+        // FIX 5: Only acquire the wakelock once, here in onCreate.
+        android.os.PowerManager pm =
+                (android.os.PowerManager) getSystemService(POWER_SERVICE);
+        if (wakeLock == null || !wakeLock.isHeld()) {
+            wakeLock = pm.newWakeLock(
+                    android.os.PowerManager.PARTIAL_WAKE_LOCK,
+                    "ZeroAxis::AgentWakeLock");
+            wakeLock.acquire();
+            log("WakeLock acquired");
+        }
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        log("onStartCommand");
-        new Thread(this::reportStats).start();
-        new Thread(this::pollCommands).start();
-        handler.postDelayed(statsRunnable,   STATS_INTERVAL);
-        handler.postDelayed(commandRunnable, COMMAND_INTERVAL);
+        // FIX 1: Only set up threads and runnables on the very first call.
+        // Subsequent startForegroundService() calls from MainActivity/BootReceiver
+        // just keep the service alive — they must not spawn duplicate workers.
+        if (!started) {
+            started = true;
+            log("AgentService first start — wiring up workers");
+            new Thread(this::reportStats).start();
+            new Thread(this::pollCommands).start();
+            handler.postDelayed(statsRunnable,   STATS_INTERVAL);
+            handler.postDelayed(commandRunnable, COMMAND_INTERVAL);
+        } else {
+            log("AgentService onStartCommand called again — ignoring (already running)");
+        }
         return START_STICKY;
     }
 
@@ -94,9 +110,13 @@ public class AgentService extends Service {
     public void onDestroy() {
         super.onDestroy();
         log("onDestroy");
+        started = false;   // reset so next onCreate/onStartCommand re-wires correctly
         handler.removeCallbacks(statsRunnable);
         handler.removeCallbacks(commandRunnable);
-        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        if (wakeLock != null && wakeLock.isHeld()) {
+            wakeLock.release();
+            log("WakeLock released");
+        }
     }
 
     @Override
@@ -121,7 +141,6 @@ public class AgentService extends Service {
             log("reportStats started");
             JSONObject stats = new JSONObject();
 
-            // Battery
             try {
                 BatteryManager bm = (BatteryManager) getSystemService(BATTERY_SERVICE);
                 stats.put("battery_level",    bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY));
@@ -133,26 +152,22 @@ public class AgentService extends Service {
                 stats.put("battery_charging", false);
             }
 
-            // Storage
             try {
                 StatFs sf = new StatFs(Environment.getDataDirectory().getPath());
                 stats.put("storage_free_bytes",  sf.getAvailableBytes());
                 stats.put("storage_total_bytes", sf.getTotalBytes());
-                log("storage free=" + sf.getAvailableBytes() + " total=" + sf.getTotalBytes());
             } catch (Exception e) {
-                log("Storage error: " + e.getMessage());
                 stats.put("storage_free_bytes",  0);
                 stats.put("storage_total_bytes", 0);
             }
 
-            // WiFi & IP
             try {
                 android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
                         getSystemService(Context.CONNECTIVITY_SERVICE);
                 android.net.Network activeNet = cm.getActiveNetwork();
                 android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(activeNet);
                 String ssid = "";
-                String ip = "";
+                String ip   = "";
                 if (caps != null && caps.hasTransport(
                         android.net.NetworkCapabilities.TRANSPORT_WIFI)) {
                     android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager)
@@ -174,26 +189,21 @@ public class AgentService extends Service {
                 stats.put("ip_address", ip);
                 log("wifi_ssid=" + ssid + " ip=" + ip);
             } catch (Exception e) {
-                log("WiFi error: " + e.getMessage());
                 stats.put("wifi_ssid",  "");
                 stats.put("ip_address", "");
             }
 
-            // Location
             try {
                 LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);
                 Location loc = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
                 if (loc == null) loc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER);
                 stats.put("lat", loc != null ? loc.getLatitude()  : 0);
                 stats.put("lng", loc != null ? loc.getLongitude() : 0);
-                log("location lat=" + stats.getDouble("lat") + " lng=" + stats.getDouble("lng"));
             } catch (Exception e) {
-                log("Location error: " + e.getMessage());
                 stats.put("lat", 0);
                 stats.put("lng", 0);
             }
 
-            // Device info
             try {
                 stats.put("os_version", android.os.Build.VERSION.RELEASE);
                 stats.put("model",      android.os.Build.MODEL);
@@ -201,28 +211,25 @@ public class AgentService extends Service {
                 stats.put("android_id", android.provider.Settings.Secure.getString(
                         getContentResolver(),
                         android.provider.Settings.Secure.ANDROID_ID));
-                log("os=" + android.os.Build.VERSION.RELEASE + " model=" + android.os.Build.MODEL);
-            } catch (Exception e) { log("Device info error: " + e.getMessage()); }
+            } catch (Exception e) {
+                log("Device info error: " + e.getMessage());
+            }
 
-            // Usage stats
             int screenTime = 0;
             List<UsageStatsHelper.AppUsage> usage = null;
             try {
                 usage = UsageStatsHelper.getTodayUsage(this);
                 for (UsageStatsHelper.AppUsage a : usage) screenTime += a.foregroundMins;
-                log("screenTime=" + screenTime + " apps=" + (usage != null ? usage.size() : 0));
+                log("screenTime=" + screenTime + " apps=" + usage.size());
             } catch (Exception e) {
                 log("Usage stats error: " + e.getMessage());
-                usage = null;
             }
             stats.put("screen_time_today_mins", screenTime);
             stats.put("status", "online");
 
-            // POST stats
             post("/api/devices/" + serial + "/stats", stats);
             log("Stats POST sent");
 
-            // POST app usage
             if (usage != null && !usage.isEmpty()) {
                 try {
                     JSONArray apps = new JSONArray();
@@ -244,38 +251,36 @@ public class AgentService extends Service {
                 }
             }
 
-            // Send installed apps once per day
             try {
-                long nowMs = System.currentTimeMillis();
+                long nowMs    = System.currentTimeMillis();
                 long lastSent = getSharedPreferences("zeroaxis", MODE_PRIVATE)
                         .getLong("last_installed_sent", 0);
                 if (nowMs - lastSent > INSTALLED_APPS_INTERVAL) {
-                    List<UsageStatsHelper.AppInfo> installed = UsageStatsHelper.getInstalledApps(this);
+                    List<UsageStatsHelper.AppInfo> installed =
+                            UsageStatsHelper.getInstalledApps(this);
                     if (!installed.isEmpty()) {
-                        JSONArray appsArray = new JSONArray();
+                        JSONArray arr = new JSONArray();
                         for (UsageStatsHelper.AppInfo app : installed) {
                             JSONObject obj = new JSONObject();
                             obj.put("package", app.packageName);
-                            obj.put("name", app.appName);
+                            obj.put("name",    app.appName);
                             obj.put("version", app.version);
-                            appsArray.put(obj);
+                            arr.put(obj);
                         }
                         JSONObject payload = new JSONObject();
-                        payload.put("apps", appsArray);
+                        payload.put("apps", arr);
                         post("/api/devices/" + serial + "/installed_apps", payload);
                         getSharedPreferences("zeroaxis", MODE_PRIVATE)
                                 .edit().putLong("last_installed_sent", nowMs).apply();
                         log("Installed apps sent, count=" + installed.size());
-                    } else {
-                        log("No installed apps found");
                     }
                 }
             } catch (Exception e) {
                 log("Installed apps error: " + e.getMessage());
             }
+
         } catch (Exception e) {
             log("reportStats exception: " + e.getMessage());
-            e.printStackTrace();
         }
     }
 
@@ -287,18 +292,20 @@ public class AgentService extends Service {
                     .build();
             Response res = client.newCall(req).execute();
             if (!res.isSuccessful()) {
-                log("pollCommands response not successful: " + res.code());
+                log("pollCommands HTTP " + res.code());
+                res.close();
                 return;
             }
 
-            org.json.JSONArray cmds = new org.json.JSONArray(res.body().string());
+            JSONArray cmds = new JSONArray(res.body().string());
+            res.close();
             log("Received " + cmds.length() + " commands");
             CommandExecutor executor = new CommandExecutor(this);
 
             for (int i = 0; i < cmds.length(); i++) {
                 JSONObject cmd     = cmds.getJSONObject(i);
-                int id             = cmd.getInt("id");
-                String command     = cmd.getString("command");
+                int        id      = cmd.getInt("id");
+                String     command = cmd.getString("command");
                 JSONObject payload = cmd.optJSONObject("payload");
                 if (payload == null) payload = new JSONObject();
                 log("Executing command " + command + " id=" + id);
@@ -306,7 +313,7 @@ public class AgentService extends Service {
                 String status = "done";
                 try {
                     executor.execute(command, payload);
-                    log("Command " + command + " executed successfully");
+                    log("Command " + command + " ok");
                 } catch (Exception e) {
                     log("Command " + command + " failed: " + e.getMessage());
                     status = "failed";
@@ -317,14 +324,13 @@ public class AgentService extends Service {
                     ack.put("command_id", id);
                     ack.put("status", status);
                     post("/api/devices/" + serial + "/command_ack", ack);
-                    log("Ack sent for command id=" + id + " status=" + status);
+                    log("Ack sent id=" + id + " status=" + status);
                 } catch (Exception e) {
                     log("Ack failed: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
             log("pollCommands exception: " + e.getMessage());
-            e.printStackTrace();
         }
     }
 
@@ -362,7 +368,8 @@ public class AgentService extends Service {
                 .setContentText("Device management active")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setOngoing(true)
-                .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+                .setForegroundServiceBehavior(
+                        NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build();
     }

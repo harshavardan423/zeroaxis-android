@@ -106,7 +106,6 @@ public class AVScanService extends Worker {
     // ── Main scan logic ───────────────────────────────────────────────────────
 
     private void runScan(File log) {
-        // WorkManager passes inputs via Data, not Intent extras.
         String scanType = getInputData().getString(EXTRA_SCAN_TYPE);
         String flaskUrl = getInputData().getString(EXTRA_FLASK_URL);
         String serial   = getInputData().getString(EXTRA_SERIAL);
@@ -115,7 +114,7 @@ public class AVScanService extends Worker {
 
         appendLog(log, "scan_type=" + scanType + "  serial=" + serial);
 
-        // Degrade full scan to quick if MANAGE_EXTERNAL_STORAGE not granted.
+        // Full scan degrades to quick if permission missing.
         if ("full".equals(scanType)
                 && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R
                 && !Environment.isExternalStorageManager()) {
@@ -142,14 +141,16 @@ public class AVScanService extends Worker {
         updateNotification("Scanning " + scanRoot.getName() + "…");
 
         AVEngine engine = new AVEngine(getApplicationContext());
+
+        // FIX 4: Never download signatures during a scan.
+        // Downloading 50 MB synchronously on the WorkManager thread causes Samsung
+        // Android 15 to kill the worker as hung. If sigs are missing we proceed
+        // without them — the forced eicar detection works regardless, and real
+        // signature scanning will work once the user taps Update Signatures.
         boolean sigsOk = engine.loadSignatures();
         appendLog(log, "loadSignatures() from disk: " + sigsOk);
-
         if (!sigsOk) {
-            appendLog(log, "Signatures missing — downloading");
-            updateNotification("Downloading signatures…");
-            int n = engine.downloadSignatures(null);
-            appendLog(log, "Downloaded " + n + " files");
+            appendLog(log, "Signatures not loaded — continuing (forced detections still active)");
         }
 
         JSONArray threats = new JSONArray();
