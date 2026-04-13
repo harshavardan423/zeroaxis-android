@@ -151,7 +151,13 @@ public class AVScanService extends Worker {
         }
 
         JSONArray threats = new JSONArray();
-        int scanned = bfsScan(scanRoot, engine, threats, maxDepth, log);
+        int scanned = 0;
+        // Use MediaStore for Quick scan on Android 10+ to get all files
+        if ("quick".equals(scanType) && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            scanned = scanDownloadsWithMediaStore(engine, threats, log);
+        } else {
+            scanned = bfsScan(scanRoot, engine, threats, maxDepth, log);
+        }
 
         // Always also scan the app's own external files directory —
         // readable with zero permissions on any Android version.
@@ -278,6 +284,73 @@ public class AVScanService extends Worker {
                         Log.w(TAG, "checkFile: " + f.getName() + " " + e.getMessage());
                     }
                 }
+            }
+        }
+        return scanned;
+    }
+
+        // Scan Downloads using MediaStore - works on Android 10+ for all files (including .com)
+    private int scanDownloadsWithMediaStore(AVEngine engine, JSONArray threats, File log) {
+        int scanned = 0;
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) {
+            // Fallback to File API for older Android
+            File downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            if (downloads != null && downloads.exists()) {
+                scanned = bfsScan(downloads, engine, threats, MAX_DEPTH_QUICK, log);
+            }
+            return scanned;
+        }
+
+        try {
+            android.database.Cursor cursor = getApplicationContext().getContentResolver().query(
+                    android.provider.MediaStore.Files.getContentUri("external"),
+                    new String[]{
+                            android.provider.MediaStore.Files.FileColumns.DATA,
+                            android.provider.MediaStore.Files.FileColumns.SIZE
+                    },
+                    android.provider.MediaStore.Files.FileColumns.RELATIVE_PATH + " LIKE ?",
+                    new String[]{"%Download%"},
+                    null
+            );
+
+            if (cursor == null) {
+                appendLog(log, "MediaStore query returned null");
+                return 0;
+            }
+
+            int dataColumn = cursor.getColumnIndex(android.provider.MediaStore.Files.FileColumns.DATA);
+            int sizeColumn = cursor.getColumnIndex(android.provider.MediaStore.Files.FileColumns.SIZE);
+            while (cursor.moveToNext()) {
+                if (scanned >= MAX_FILES) break;
+                String path = cursor.getString(dataColumn);
+                long size = cursor.getLong(sizeColumn);
+                if (path == null || size == 0 || size > MAX_FILE_SIZE) continue;
+                File file = new File(path);
+                if (!file.exists()) continue;
+                try {
+                    boolean hit = engine.checkFile(file);
+                    scanned++;
+                    if (hit) {
+                        appendLog(log, "THREAT: " + file.getAbsolutePath());
+                        String[] hashes = engine.hashFile(file);
+                        JSONObject t = new JSONObject();
+                        t.put("file_path",   file.getAbsolutePath());
+                        t.put("threat_name", "Malware (Signature)");
+                        t.put("hash",        hashes[2] != null ? hashes[2] : "");
+                        threats.put(t);
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "checkFile: " + file.getName() + " " + e.getMessage());
+                }
+            }
+            cursor.close();
+            appendLog(log, "MediaStore Downloads scan completed, files=" + scanned);
+        } catch (Exception e) {
+            appendLog(log, "MediaStore query failed: " + e.getMessage());
+            // Fallback to File API
+            File downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            if (downloads != null && downloads.exists()) {
+                scanned = bfsScan(downloads, engine, threats, MAX_DEPTH_QUICK, log);
             }
         }
         return scanned;
