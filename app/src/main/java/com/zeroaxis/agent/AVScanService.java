@@ -31,9 +31,6 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 
-import android.content.SharedPreferences;
-import androidx.documentfile.provider.DocumentFile;
-import android.provider.DocumentsContract;
 
 public class AVScanService extends Worker {
 
@@ -156,15 +153,9 @@ public class AVScanService extends Worker {
 
         JSONArray threats = new JSONArray();
         int scanned = 0;
-        // Use SAF for Downloads scan if a tree URI is available (works on all Android versions)
+        // Quick scan: try Downloads folder (likely returns 0 on modern Android)
         if ("quick".equals(scanType)) {
-            scanned = scanDownloadsWithSAF(engine, threats, log);
-            // If SAF returned 0 (no URI or failed), fall back to old methods
-            if (scanned == 0) {
-                // No SAF access – fall back to old File API (may not see .com files)
-                appendLog(log, "SAF returned 0 – using File API fallback");
-                scanned = bfsScan(scanRoot, engine, threats, maxDepth, log);
-            }
+            scanned = bfsScan(scanRoot, engine, threats, maxDepth, log);
         } else {
             scanned = bfsScan(scanRoot, engine, threats, maxDepth, log);
         }
@@ -298,85 +289,6 @@ public class AVScanService extends Worker {
         }
         return scanned;
     }
-
-        // Scan Downloads using Storage Access Framework (SAF)
-    // Works on all Android versions, finds all files including .com
-    private int scanDownloadsWithSAF(AVEngine engine, JSONArray threats, File log) {
-        int scanned = 0;
-        Context ctx = getApplicationContext();
-        SharedPreferences prefs = ctx.getSharedPreferences("zeroaxis", Context.MODE_PRIVATE);
-        String uriString = prefs.getString("downloads_tree_uri", null);
-        if (uriString == null) {
-            appendLog(log, "SAF: No tree URI saved, skipping Downloads scan");
-            return 0;
-        }
-        android.net.Uri treeUri = android.net.Uri.parse(uriString);
-        try {
-            // Ensure we still have permission
-            ctx.getContentResolver().takePersistableUriPermission(treeUri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        } catch (SecurityException e) {
-            appendLog(log, "SAF: Permission lost, need re-grant");
-            return 0;
-        }
-
-        DocumentFile root = DocumentFile.fromTreeUri(ctx, treeUri);
-        if (root == null || !root.exists()) {
-            appendLog(log, "SAF: Root document null or missing");
-            return 0;
-        }
-
-        Deque<DocumentFile> stack = new ArrayDeque<>();
-        stack.push(root);
-        while (!stack.isEmpty() && scanned < MAX_FILES) {
-            DocumentFile dir = stack.pop();
-            if (!dir.isDirectory()) continue;
-            DocumentFile[] children = dir.listFiles();
-            if (children == null) continue;
-            for (DocumentFile f : children) {
-                if (scanned >= MAX_FILES) break;
-                if (f.isDirectory()) {
-                    stack.push(f);
-                } else {
-                    long size = f.length();
-                    if (size == 0 || size > MAX_FILE_SIZE) continue;
-                    try {
-                        // Use engine.checkFile with InputStream
-                        boolean hit = engine.checkFile(f.getName(), () -> {
-                            try {
-                                return ctx.getContentResolver().openInputStream(f.getUri());
-                            } catch (Exception e) {
-                                return null;
-                            }
-                        });
-                        scanned++;
-                        if (hit) {
-                            String path = f.getUri().toString();
-                            appendLog(log, "THREAT: " + path);
-                            // Compute hashes from InputStream
-                            String[] hashes = engine.hashFile(() -> {
-                                try {
-                                    return ctx.getContentResolver().openInputStream(f.getUri());
-                                } catch (Exception e) {
-                                    return null;
-                                }
-                            });
-                            JSONObject t = new JSONObject();
-                            t.put("file_path",   path);
-                            t.put("threat_name", "Malware (Signature)");
-                            t.put("hash",        hashes[2] != null ? hashes[2] : "");
-                            threats.put(t);
-                        }
-                    } catch (Exception e) {
-                        Log.w(TAG, "checkFile: " + f.getName() + " " + e.getMessage());
-                    }
-                }
-            }
-        }
-        appendLog(log, "SAF Downloads scan completed, files=" + scanned);
-        return scanned;
-    }
-
 
     // ── HTTP push ─────────────────────────────────────────────────────────────
 
