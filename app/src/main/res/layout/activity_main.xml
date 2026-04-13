@@ -80,4 +80,18 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"/>
 
+    <Button android:id="@+id/btnGrantDownloads"
+        android:text="Grant Downloads Access"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"/>
+
+    <TextView android:id="@+id/tvDownloadsStatus"
+        android:text="⚠ Downloads access not granted"
+        android:textSize="12sp"
+        android:textColor="@android:color/darker_gray"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"/>
+
 </LinearLayout>

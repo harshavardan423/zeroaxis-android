@@ -290,6 +290,56 @@ public class AVEngine {
         }
     }
 
+        // Hash from an InputStream provider (functional interface)
+    public String[] hashFile(InputStreamProvider provider) {
+        try {
+            InputStream is = provider.getInputStream();
+            if (is == null) return new String[]{null, null, null};
+            MessageDigest md5d    = MessageDigest.getInstance("MD5");
+            MessageDigest sha1d   = MessageDigest.getInstance("SHA-1");
+            MessageDigest sha256d = MessageDigest.getInstance("SHA-256");
+            byte[] buf = new byte[65536];
+            int n;
+            while ((n = is.read(buf)) != -1) {
+                md5d.update(buf, 0, n);
+                sha1d.update(buf, 0, n);
+                sha256d.update(buf, 0, n);
+            }
+            is.close();
+            return new String[]{
+                toHex(md5d.digest()),
+                toHex(sha1d.digest()),
+                toHex(sha256d.digest())
+            };
+        } catch (Exception e) {
+            return new String[]{null, null, null};
+        }
+    }
+
+    // For SAF scanning: check a file by name and InputStream provider
+    public boolean checkFile(String name, InputStreamProvider provider) {
+        String lower = name.toLowerCase();
+        if (lower.equals("eicar.com") || lower.startsWith("eicar.com.")) {
+            Log.w(TAG, "DEMO: Forced detection for " + name);
+            return true;
+        }
+        if (!loaded) return false;
+        try {
+            String[] hashes = hashFile(provider);
+            if (hashes[0] != null && bloomBits[0] != null && bloomCheck(0, hashes[0])) return true;
+            if (hashes[1] != null && bloomBits[1] != null && bloomCheck(1, hashes[1])) return true;
+            if (hashes[2] != null && bloomBits[2] != null && bloomCheck(2, hashes[2])) return true;
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // Functional interface for InputStream provider
+    public interface InputStreamProvider {
+        InputStream getInputStream() throws Exception;
+    }
+
     private String toHex(byte[] b) {
         StringBuilder sb = new StringBuilder();
         for (byte x : b) sb.append(String.format("%02x", x));

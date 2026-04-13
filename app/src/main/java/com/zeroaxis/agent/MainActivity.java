@@ -10,6 +10,7 @@ import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import android.widget.Toast;
+import android.provider.DocumentsContract;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -17,6 +18,7 @@ import java.util.Locale;
 public class MainActivity extends AppCompatActivity {
 
     private static final int REQ_MEDIA_PERMISSIONS = 2001;
+    private static final int REQ_DOWNLOADS_FOLDER = 2002;
 
     private String  pendingScanType     = null;
     private String  pendingScanSerial   = null;
@@ -42,6 +44,7 @@ public class MainActivity extends AppCompatActivity {
         }
     };
     private long scanStartedAt = 0;
+    private String downloadsTreeUri = null; // stored in SharedPreferences
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -109,6 +112,17 @@ public class MainActivity extends AppCompatActivity {
         btnQuick.setOnClickListener(v -> startScan("quick", serial, flaskUrl));
         btnFull.setOnClickListener(v  -> startScan("full",  serial, flaskUrl));
         btnSigs.setOnClickListener(v  -> updateSignatures());
+
+        Button btnGrant = findViewById(R.id.btnGrantDownloads);
+        if (btnGrant != null) {
+            btnGrant.setOnClickListener(v -> grantDownloadsAccess());
+        }
+        // Show current access status
+        TextView tvDownloadsStatus = findViewById(R.id.tvDownloadsStatus);
+        if (tvDownloadsStatus != null) {
+            String uri = getSharedPreferences("zeroaxis", MODE_PRIVATE).getString("downloads_tree_uri", null);
+            tvDownloadsStatus.setText(uri != null ? "✓ Downloads access granted" : "⚠ Downloads access not granted");
+        }
     }
 
     private void startScan(String type, String serial, String flaskUrl) {
@@ -178,6 +192,30 @@ public class MainActivity extends AppCompatActivity {
             return new org.json.JSONObject(new String(buf)).getString("flask_url");
         } catch (Exception e) {
             return "https://zeroaxis.live";
+        }
+    }
+
+        private void grantDownloadsAccess() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, 
+                android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload"));
+        startActivityForResult(intent, REQ_DOWNLOADS_FOLDER);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_DOWNLOADS_FOLDER && resultCode == RESULT_OK && data != null) {
+            android.net.Uri treeUri = data.getData();
+            if (treeUri != null) {
+                getContentResolver().takePersistableUriPermission(treeUri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                getSharedPreferences("zeroaxis", MODE_PRIVATE).edit()
+                        .putString("downloads_tree_uri", treeUri.toString())
+                        .apply();
+                Toast.makeText(this, "Downloads access granted", Toast.LENGTH_SHORT).show();
+                refresh(); // update UI
+            }
         }
     }
 }
