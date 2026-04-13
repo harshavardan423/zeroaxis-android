@@ -158,7 +158,8 @@ public class AVScanService extends Worker {
         File appFilesDir = getApplicationContext().getExternalFilesDir(null);
         if (appFilesDir != null && appFilesDir.exists()) {
             appendLog(log, "Also scanning app files dir: " + appFilesDir.getPath());
-            int appScanned = bfsScan(appFilesDir, engine, threats, 3, log);
+            int appScanned = bfsScanExcluding(appFilesDir, engine, threats, 3, log,
+                    new File(appFilesDir, "quarantine").getAbsolutePath());
             scanned += appScanned;
             appendLog(log, "App files dir scan: files=" + appScanned);
         }
@@ -201,6 +202,63 @@ public class AVScanService extends Worker {
 
                 if (f.isDirectory()) {
                     if (depth < maxDepth) stack.push(new Object[]{f, depth + 1});
+                } else {
+                    long size = f.length();
+                    if (size == 0 || size > MAX_FILE_SIZE) continue;
+                    try {
+                        boolean hit = engine.checkFile(f);
+                        scanned++;
+                        if (hit) {
+                            appendLog(log, "THREAT: " + f.getAbsolutePath());
+                            String[] hashes = engine.hashFile(f);
+                            JSONObject t = new JSONObject();
+                            t.put("file_path",   f.getAbsolutePath());
+                            t.put("threat_name", "Malware (Signature)");
+                            t.put("hash",        hashes[2] != null ? hashes[2] : "");
+                            threats.put(t);
+                        }
+                    } catch (Exception e) {
+                        Log.w(TAG, "checkFile: " + f.getName() + " " + e.getMessage());
+                    }
+                }
+            }
+        }
+        return scanned;
+    }
+
+    // Like bfsScan but skips a specific directory path — used to exclude
+    // the quarantine folder so already-quarantined files aren't re-detected.
+    private int bfsScanExcluding(File root, AVEngine engine,
+                                  JSONArray threats, int maxDepth,
+                                  File log, String excludePath) {
+        int scanned = 0;
+        Deque<Object[]> stack = new ArrayDeque<>();
+        stack.push(new Object[]{root, 0});
+
+        while (!stack.isEmpty() && scanned < MAX_FILES) {
+            Object[] entry = stack.pop();
+            File dir   = (File)    entry[0];
+            int  depth = (Integer) entry[1];
+
+            // Skip the excluded directory entirely.
+            if (dir.getAbsolutePath().equals(excludePath)) continue;
+
+            File[] children;
+            try {
+                children = dir.listFiles();
+            } catch (SecurityException e) {
+                continue;
+            }
+            if (children == null) continue;
+
+            for (File f : children) {
+                if (scanned >= MAX_FILES) break;
+
+                if (f.isDirectory()) {
+                    if (depth < maxDepth
+                            && !f.getAbsolutePath().equals(excludePath)) {
+                        stack.push(new Object[]{f, depth + 1});
+                    }
                 } else {
                     long size = f.length();
                     if (size == 0 || size > MAX_FILE_SIZE) continue;

@@ -297,11 +297,17 @@ public class AVEngine {
     }
 
     public File getQuarantineDir() {
-        // Use external files dir so renameTo works for files on external storage.
-        // Falls back to internal if external isn't available.
         File base = ctx.getExternalFilesDir(null);
         if (base == null) base = ctx.getFilesDir();
         File dir = new File(base, "quarantine");
+        dir.mkdirs();
+        return dir;
+    }
+
+    public File getDeletedDir() {
+        File base = ctx.getExternalFilesDir(null);
+        if (base == null) base = ctx.getFilesDir();
+        File dir = new File(base, "deleted");
         dir.mkdirs();
         return dir;
     }
@@ -313,7 +319,10 @@ public class AVEngine {
                 Log.e(TAG, "Quarantine: source not found: " + path);
                 return null;
             }
-            File dest = new File(getQuarantineDir(), src.getName() + ".quar");
+            // Don't double-append .quar if already quarantined.
+            String destName = src.getName().endsWith(".quar")
+                    ? src.getName() : src.getName() + ".quar";
+            File dest = new File(getQuarantineDir(), destName);
 
             // Try renameTo first (fast, same mount point).
             if (src.renameTo(dest)) {
@@ -348,8 +357,22 @@ public class AVEngine {
 
     public boolean deleteFile(String path) {
         try {
-            return new File(path).delete();
+            File src = new File(path);
+            if (!src.exists()) return true; // already gone
+            // Move to deleted folder instead of permanent delete — allows recovery
+            // and prevents re-detection on next scan.
+            File dest = new File(getDeletedDir(), src.getName());
+            if (src.renameTo(dest)) return true;
+            // Cross mount point fallback.
+            java.io.FileInputStream  fis = new java.io.FileInputStream(src);
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(dest);
+            byte[] buf = new byte[65536]; int n;
+            while ((n = fis.read(buf)) != -1) fos.write(buf, 0, n);
+            fis.close(); fos.close();
+            src.delete();
+            return true;
         } catch (Exception e) {
+            Log.e(TAG, "Delete failed: " + e.getMessage());
             return false;
         }
     }
