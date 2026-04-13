@@ -359,18 +359,13 @@ public class AVEngine {
         try {
             File src = new File(path);
             if (!src.exists()) return true; // already gone
-            // Move to deleted folder instead of permanent delete — allows recovery
-            // and prevents re-detection on next scan.
-            File dest = new File(getDeletedDir(), src.getName());
-            if (src.renameTo(dest)) return true;
-            // Cross mount point fallback.
-            java.io.FileInputStream  fis = new java.io.FileInputStream(src);
-            java.io.FileOutputStream fos = new java.io.FileOutputStream(dest);
-            byte[] buf = new byte[65536]; int n;
-            while ((n = fis.read(buf)) != -1) fos.write(buf, 0, n);
-            fis.close(); fos.close();
-            src.delete();
-            return true;
+            boolean deleted = src.delete();
+            if (deleted) {
+                Log.i(TAG, "Permanently deleted: " + path);
+            } else {
+                Log.e(TAG, "Failed to delete: " + path);
+            }
+            return deleted;
         } catch (Exception e) {
             Log.e(TAG, "Delete failed: " + e.getMessage());
             return false;
