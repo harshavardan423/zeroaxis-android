@@ -404,25 +404,6 @@ public class AgentService extends Service {
         return new long[]{total, active};
     }
 
-    private long[] readStats() throws Exception {
-        java.io.BufferedReader r = new java.io.BufferedReader(
-            new java.io.InputStreamReader(new java.io.FileInputStream("/proc/stat")));
-        String line = r.readLine();
-        r.close();
-        if (line == null) throw new Exception("Empty /proc/stat");
-        String[] parts = line.trim().split("\\s+");
-        long user = Long.parseLong(parts[1]);
-        long nice = Long.parseLong(parts[2]);
-        long system = Long.parseLong(parts[3]);
-        long idle = Long.parseLong(parts[4]);
-        long iowait = Long.parseLong(parts[5]);
-        long irq = Long.parseLong(parts[6]);
-        long softirq = Long.parseLong(parts[7]);
-        long total = user + nice + system + idle + iowait + irq + softirq;
-        long active = total - idle;
-        return new long[]{total, active};
-    }
-
     private int getRamUsagePercent() {
         try {
             ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
