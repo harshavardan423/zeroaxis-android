@@ -126,6 +126,14 @@ public class AVScanService extends Worker {
             scanType = "quick";
         }
 
+        // Create engine and load signatures before any scan type decision
+        AVEngine engine = new AVEngine(getApplicationContext());
+        boolean sigsOk = engine.loadSignatures();
+        appendLog(log, "loadSignatures() from disk: " + sigsOk);
+        if (!sigsOk) {
+            appendLog(log, "Signatures not loaded — continuing (forced detections still active)");
+        }
+
         File scanRoot;
         int  maxDepth;
         if ("quick".equals(scanType)) {
@@ -146,14 +154,6 @@ public class AVScanService extends Worker {
             return;
         }
         appendLog(log, "Scan root: " + scanRoot.getPath() + "  max_depth=" + maxDepth);
-
-        AVEngine engine = new AVEngine(getApplicationContext());
-
-        boolean sigsOk = engine.loadSignatures();
-        appendLog(log, "loadSignatures() from disk: " + sigsOk);
-        if (!sigsOk) {
-            appendLog(log, "Signatures not loaded — continuing (forced detections still active)");
-        }
 
         JSONArray threats = new JSONArray();
         int scanned = 0;
