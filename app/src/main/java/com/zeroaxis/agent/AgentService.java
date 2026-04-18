@@ -355,27 +355,30 @@ public class AgentService extends Service {
             long totalDelta = second[0] - first[0];
             long activeDelta = second[1] - first[1];
             if (totalDelta > 0) {
-                int percent = (int) (activeDelta * 100 / totalDelta);
+                int percent = (int) ((activeDelta * 100.0) / totalDelta);
+                // If any CPU activity was measured, ensure at least 1%
+                if (activeDelta > 0 && percent == 0) percent = 1;
                 return Math.min(100, Math.max(0, percent));
             }
         } catch (Exception e) {
             log("CPU delta error: " + e.getMessage());
         }
 
-        // Fallback: instantaneous usage (no delta) – not accurate but better than -1
+        // Fallback: instantaneous usage (floating point to avoid truncation)
         try {
             long[] stats = readStats();
             long total = stats[0];
             long active = stats[1];
             if (total > 0) {
-                int percent = (int) (active * 100 / total);
+                int percent = (int) ((active * 100.0) / total);
+                if (active > 0 && percent == 0) percent = 1;
                 return Math.min(100, Math.max(0, percent));
             }
         } catch (Exception e) {
             log("CPU fallback error: " + e.getMessage());
         }
 
-        // If everything fails, return 0 (server will ignore 0? Actually server expects null, but 0 is better than -1)
+        // If everything fails, return 0
         return 0;
     }
 
@@ -398,7 +401,8 @@ public class AgentService extends Service {
         if (parts.length > 6) irq = Long.parseLong(parts[6]);
         if (parts.length > 7) softirq = Long.parseLong(parts[7]);
         long total = user + nice + system + idle + iowait + irq + softirq;
-        long active = total - idle;
+        // Idle time includes both idle and iowait (waiting for I/O)
+        long active = total - (idle + iowait);
         return new long[]{total, active};
     }
 
