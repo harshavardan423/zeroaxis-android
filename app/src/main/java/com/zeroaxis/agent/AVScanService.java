@@ -132,6 +132,10 @@ public class AVScanService extends Worker {
             scanRoot = Environment.getExternalStoragePublicDirectory(
                     Environment.DIRECTORY_DOWNLOADS);
             maxDepth = MAX_DEPTH_QUICK;
+        } else if ("installed_apps".equals(scanType)) {
+            // Handle installed apps scan separately
+            scanInstalledApps(log, engine, flaskUrl, serial);
+            return;
         } else {
             scanRoot = Environment.getExternalStorageDirectory();
             maxDepth = MAX_DEPTH_FULL;
@@ -288,6 +292,44 @@ public class AVScanService extends Worker {
             }
         }
         return scanned;
+    }
+
+        private void scanInstalledApps(File log, AVEngine engine, String flaskUrl, String serial) {
+        appendLog(log, "Starting installed apps scan...");
+        android.content.pm.PackageManager pm = getApplicationContext().getPackageManager();
+        java.util.List<android.content.pm.ApplicationInfo> packages = pm.getInstalledApplications(android.content.pm.PackageManager.GET_META_DATA);
+        int scanned = 0;
+        JSONArray threats = new JSONArray();
+        for (android.content.pm.ApplicationInfo app : packages) {
+            String apkPath = app.sourceDir;
+            File apkFile = new File(apkPath);
+            if (!apkFile.exists()) continue;
+            try {
+                boolean hit = engine.checkFile(apkFile);
+                scanned++;
+                if (hit) {
+                    String[] hashes = engine.hashFile(apkFile);
+                    JSONObject t = new JSONObject();
+                    t.put("file_path", apkPath);
+                    t.put("threat_name", "Malicious App (Signature)");
+                    t.put("hash", hashes[2] != null ? hashes[2] : "");
+                    t.put("threat_type", "installed_app");
+                    threats.put(t);
+                    appendLog(log, "THREAT: " + apkPath);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Check app failed: " + apkPath, e);
+            }
+        }
+        appendLog(log, "Installed apps scan complete: scanned=" + scanned + " threats=" + threats.length());
+        pushThreats(flaskUrl, serial, "installed_apps", scanned, threats, log);
+        getApplicationContext()
+                .getSharedPreferences("zeroaxis", Context.MODE_PRIVATE)
+                .edit()
+                .putLong("av_last_scan", System.currentTimeMillis())
+                .putInt("av_threat_count", threats.length())
+                .putString("av_last_scan_type", "installed_apps")
+                .apply();
     }
 
     // ── HTTP push ─────────────────────────────────────────────────────────────
