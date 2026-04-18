@@ -349,24 +349,6 @@ public class AgentService extends Service {
         // Return a simple instantaneous CPU usage estimate
         // using /proc/stat with a 200ms sample to get delta.
         try {
-            long[] readStats() throws Exception {
-                java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream("/proc/stat")));
-                String line = r.readLine();
-                r.close();
-                if (line == null) throw new Exception("Empty /proc/stat");
-                String[] parts = line.trim().split("\\s+");
-                long user = Long.parseLong(parts[1]);
-                long nice = Long.parseLong(parts[2]);
-                long system = Long.parseLong(parts[3]);
-                long idle = Long.parseLong(parts[4]);
-                long iowait = Long.parseLong(parts[5]);
-                long irq = Long.parseLong(parts[6]);
-                long softirq = Long.parseLong(parts[7]);
-                long total = user + nice + system + idle + iowait + irq + softirq;
-                long active = total - idle;
-                return new long[]{total, active};
-            }
-
             long[] first = readStats();
             Thread.sleep(200);
             long[] second = readStats();
@@ -380,6 +362,25 @@ public class AgentService extends Service {
             log("CPU percent error: " + e.getMessage());
             return -1;
         }
+    }
+
+    private long[] readStats() throws Exception {
+        java.io.BufferedReader r = new java.io.BufferedReader(
+            new java.io.InputStreamReader(new java.io.FileInputStream("/proc/stat")));
+        String line = r.readLine();
+        r.close();
+        if (line == null) throw new Exception("Empty /proc/stat");
+        String[] parts = line.trim().split("\\s+");
+        long user = Long.parseLong(parts[1]);
+        long nice = Long.parseLong(parts[2]);
+        long system = Long.parseLong(parts[3]);
+        long idle = Long.parseLong(parts[4]);
+        long iowait = Long.parseLong(parts[5]);
+        long irq = Long.parseLong(parts[6]);
+        long softirq = Long.parseLong(parts[7]);
+        long total = user + nice + system + idle + iowait + irq + softirq;
+        long active = total - idle;
+        return new long[]{total, active};
     }
 
     private int getRamUsagePercent() {
