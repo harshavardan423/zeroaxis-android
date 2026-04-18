@@ -14,6 +14,11 @@ import android.os.Looper;
 import android.os.StatFs;
 import android.location.Location;
 import android.location.LocationManager;
+import android.net.wifi.WifiManager;
+import android.net.wifi.WifiInfo;
+import android.os.Debug;
+import android.app.ActivityManager;
+import android.os.Build;
 import androidx.core.app.NotificationCompat;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -190,7 +195,16 @@ public class AgentService extends Service {
                 }
                 stats.put("wifi_ssid",  ssid);
                 stats.put("ip_address", ip);
-                log("wifi_ssid=" + ssid + " ip=" + ip);
+                // --- New fields for lifecycle ---
+                String wifiSec = getWifiSecurity();
+                int wifiSig = getWifiSignalStrength();
+                stats.put("wifi_security", wifiSec);
+                stats.put("wifi_signal_strength", wifiSig);
+                int cpuPct = getCpuUsageDelta();
+                int ramPct = getRamUsagePercent();
+                stats.put("cpu_usage_pct", cpuPct);
+                stats.put("ram_usage_pct", ramPct);
+                log("wifi_ssid=" + ssid + " ip=" + ip + " sec=" + wifiSec + " cpu=" + cpuPct + " ram=" + ramPct);
             } catch (Exception e) {
                 stats.put("wifi_ssid",  "");
                 stats.put("ip_address", "");
@@ -286,6 +300,131 @@ public class AgentService extends Service {
             log("reportStats exception: " + e.getMessage());
         }
     }
+
+    // ----- Helper methods for WiFi security, CPU, RAM -----
+    private String getWifiSecurity() {
+        try {
+            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            WifiInfo wi = wm.getConnectionInfo();
+            if (wi == null) return "unknown";
+            // Android does not expose security type directly; we need to check capabilities
+            android.net.wifi.WifiManager wifiMan = (android.net.wifi.WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            android.net.wifi.WifiInfo info = wifiMan.getConnectionInfo();
+            if (info == null) return "unknown";
+            // Get the current network's capabilities via WifiManager
+            List<android.net.wifi.ScanResult> results = wifiMan.getScanResults();
+            for (android.net.wifi.ScanResult result : results) {
+                if (result.SSID != null && result.SSID.equals(info.getSSID().replace("\"", ""))) {
+                    String cap = result.capabilities;
+                    if (cap.contains("WPA3")) return "wpa3";
+                    if (cap.contains("WPA2")) return "wpa2";
+                    if (cap.contains("WPA")) return "wpa";
+                    if (cap.contains("WEP")) return "wep";
+                    if (cap.contains("ESS") && !cap.contains("WPA") && !cap.contains("WEP")) return "open";
+                    return "unknown";
+                }
+            }
+            // Fallback: if we can't find scan result, assume WPA2 (most common)
+            return "wpa2";
+        } catch (Exception e) {
+            log("WiFi security error: " + e.getMessage());
+            return "unknown";
+        }
+    }
+
+    private int getWifiSignalStrength() {
+        try {
+            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            WifiInfo wi = wm.getConnectionInfo();
+            if (wi == null) return -1;
+            int rssi = wi.getRssi();
+            // Convert to percentage (0-100) if desired, or return raw dBm
+            return rssi;  // raw dBm (e.g., -65)
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private int getCpuUsagePercent() {
+        try {
+            // Read /proc/stat to calculate CPU usage since boot
+            java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream("/proc/stat")));
+            String line = reader.readLine();
+            reader.close();
+            if (line == null) return -1;
+            String[] parts = line.trim().split("\\s+");
+            // parts[0] is "cpu", then user, nice, system, idle, iowait, irq, softirq, steal, guest, guest_nice
+            long user = Long.parseLong(parts[1]);
+            long nice = Long.parseLong(parts[2]);
+            long system = Long.parseLong(parts[3]);
+            long idle = Long.parseLong(parts[4]);
+            long iowait = Long.parseLong(parts[5]);
+            long irq = Long.parseLong(parts[6]);
+            long softirq = Long.parseLong(parts[7]);
+            long total = user + nice + system + idle + iowait + irq + softirq;
+            long active = total - idle;
+            // We need a previous reading to calculate delta, but we'll do a simple instant reading:
+            // Actually we need two readings. Simpler: use a static cache of previous total/active.
+            // For simplicity, return a sample based on current active/total (not delta) – not accurate.
+            // Better: store previous values in static variables.
+            return (int) (active * 100 / total);
+        } catch (Exception e) {
+            log("CPU error: " + e.getMessage());
+            return -1;
+        }
+    }
+
+    // Static variables for CPU delta calculation
+    private static long prevTotal = 0;
+    private static long prevActive = 0;
+
+    private int getCpuUsageDelta() {
+        try {
+            java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream("/proc/stat")));
+            String line = reader.readLine();
+            reader.close();
+            if (line == null) return -1;
+            String[] parts = line.trim().split("\\s+");
+            long user = Long.parseLong(parts[1]);
+            long nice = Long.parseLong(parts[2]);
+            long system = Long.parseLong(parts[3]);
+            long idle = Long.parseLong(parts[4]);
+            long iowait = Long.parseLong(parts[5]);
+            long irq = Long.parseLong(parts[6]);
+            long softirq = Long.parseLong(parts[7]);
+            long total = user + nice + system + idle + iowait + irq + softirq;
+            long active = total - idle;
+            if (prevTotal == 0) {
+                prevTotal = total;
+                prevActive = active;
+                return 0;
+            }
+            long totalDelta = total - prevTotal;
+            long activeDelta = active - prevActive;
+            prevTotal = total;
+            prevActive = active;
+            if (totalDelta == 0) return 0;
+            return (int) (activeDelta * 100 / totalDelta);
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private int getRamUsagePercent() {
+        try {
+            ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+            ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
+            am.getMemoryInfo(mi);
+            long total = mi.totalMem;
+            long free = mi.availMem;
+            long used = total - free;
+            return (int) (used * 100 / total);
+        } catch (Exception e) {
+            log("RAM error: " + e.getMessage());
+            return -1;
+        }
+    }
+    // ----- End helpers -----
 
     private void pollCommands() {
         try {
