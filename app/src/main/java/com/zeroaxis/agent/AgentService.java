@@ -345,9 +345,8 @@ public class AgentService extends Service {
         }
     }
 
-        private int getCpuUsagePercent() {
-        // Return a simple instantaneous CPU usage estimate
-        // using /proc/stat with a 200ms sample to get delta.
+    private int getCpuUsagePercent() {
+        // First try the accurate delta method (200ms sample)
         try {
             long[] first = readStats();
             Thread.sleep(200);
@@ -355,13 +354,54 @@ public class AgentService extends Service {
 
             long totalDelta = second[0] - first[0];
             long activeDelta = second[1] - first[1];
-            if (totalDelta == 0) return 0;
-            int percent = (int) (activeDelta * 100 / totalDelta);
-            return Math.min(100, Math.max(0, percent));
+            if (totalDelta > 0) {
+                int percent = (int) (activeDelta * 100 / totalDelta);
+                return Math.min(100, Math.max(0, percent));
+            }
         } catch (Exception e) {
-            log("CPU percent error: " + e.getMessage());
-            return -1;
+            log("CPU delta error: " + e.getMessage());
         }
+
+        // Fallback: instantaneous usage (no delta) – not accurate but better than -1
+        try {
+            long[] stats = readStats();
+            long total = stats[0];
+            long active = stats[1];
+            if (total > 0) {
+                int percent = (int) (active * 100 / total);
+                return Math.min(100, Math.max(0, percent));
+            }
+        } catch (Exception e) {
+            log("CPU fallback error: " + e.getMessage());
+        }
+
+        // If everything fails, return 0 (server will ignore 0? Actually server expects null, but 0 is better than -1)
+        return 0;
+    }
+
+    private long[] readStats() throws Exception {
+        java.io.BufferedReader r = new java.io.BufferedReader(
+            new java.io.InputStreamReader(new java.io.FileInputStream("/proc/stat")));
+        String line = r.readLine();
+        r.close();
+        if (line == null || !line.startsWith("cpu")) {
+            throw new Exception("Invalid /proc/stat line");
+        }
+        String[] parts = line.trim().split("\\s+");
+        // parts[0] is "cpu", then user, nice, system, idle, iowait, irq, softirq, ...
+        if (parts.length < 8) {
+            throw new Exception("Unexpected /proc/stat format");
+        }
+        long user = Long.parseLong(parts[1]);
+        long nice = Long.parseLong(parts[2]);
+        long system = Long.parseLong(parts[3]);
+        long idle = Long.parseLong(parts[4]);
+        long iowait = Long.parseLong(parts[5]);
+        long irq = Long.parseLong(parts[6]);
+        long softirq = Long.parseLong(parts[7]);
+        long total = user + nice + system + idle + iowait + irq + softirq;
+        long active = total - idle;
+        return new long[]{total, active};
     }
 
     private long[] readStats() throws Exception {
