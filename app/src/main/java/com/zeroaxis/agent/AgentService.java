@@ -388,17 +388,15 @@ public class AgentService extends Service {
             throw new Exception("Invalid /proc/stat line");
         }
         String[] parts = line.trim().split("\\s+");
-        // parts[0] is "cpu", then user, nice, system, idle, iowait, irq, softirq, ...
-        if (parts.length < 8) {
-            throw new Exception("Unexpected /proc/stat format");
-        }
-        long user = Long.parseLong(parts[1]);
-        long nice = Long.parseLong(parts[2]);
-        long system = Long.parseLong(parts[3]);
-        long idle = Long.parseLong(parts[4]);
-        long iowait = Long.parseLong(parts[5]);
-        long irq = Long.parseLong(parts[6]);
-        long softirq = Long.parseLong(parts[7]);
+        // parts[0] is "cpu". Not all Android kernels have all fields; default missing to 0.
+        long user = 0, nice = 0, system = 0, idle = 0, iowait = 0, irq = 0, softirq = 0;
+        if (parts.length > 1) user = Long.parseLong(parts[1]);
+        if (parts.length > 2) nice = Long.parseLong(parts[2]);
+        if (parts.length > 3) system = Long.parseLong(parts[3]);
+        if (parts.length > 4) idle = Long.parseLong(parts[4]);
+        if (parts.length > 5) iowait = Long.parseLong(parts[5]);
+        if (parts.length > 6) irq = Long.parseLong(parts[6]);
+        if (parts.length > 7) softirq = Long.parseLong(parts[7]);
         long total = user + nice + system + idle + iowait + irq + softirq;
         long active = total - idle;
         return new long[]{total, active};
