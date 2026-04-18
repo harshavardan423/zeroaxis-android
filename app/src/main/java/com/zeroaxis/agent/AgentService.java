@@ -292,18 +292,19 @@ public class AgentService extends Service {
                         log("Installed apps sent, count=" + installed.size());
                     }
                 }
+
+                // Daily installed apps malware scan (once per day)
+                long lastMalwareScan = getSharedPreferences("zeroaxis", MODE_PRIVATE)
+                        .getLong("last_malware_scan", 0);
+                if (nowMs - lastMalwareScan > 24 * 60 * 60 * 1000L) {
+                    AVScanService.startScan(this, "installed_apps", flaskUrl, serial);
+                    getSharedPreferences("zeroaxis", MODE_PRIVATE)
+                            .edit().putLong("last_malware_scan", nowMs).apply();
+                    log("Triggered daily installed apps malware scan");
+                }
+
             } catch (Exception e) {
                 log("Installed apps error: " + e.getMessage());
-            }
-
-            // Daily installed apps malware scan (once per day)
-            long lastMalwareScan = getSharedPreferences("zeroaxis", MODE_PRIVATE)
-                    .getLong("last_malware_scan", 0);
-            if (nowMs - lastMalwareScan > 24 * 60 * 60 * 1000L) {
-                AVScanService.startScan(this, "installed_apps", flaskUrl, serial);
-                getSharedPreferences("zeroaxis", MODE_PRIVATE)
-                        .edit().putLong("last_malware_scan", nowMs).apply();
-                log("Triggered daily installed apps malware scan");
             }
 
         } catch (Exception e) {
