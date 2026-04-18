@@ -200,7 +200,7 @@ public class AgentService extends Service {
                 int wifiSig = getWifiSignalStrength();
                 stats.put("wifi_security", wifiSec);
                 stats.put("wifi_signal_strength", wifiSig);
-                int cpuPct = getCpuUsageDelta();
+                int cpuPct = getCpuUsagePercent();
                 int ramPct = getRamUsagePercent();
                 stats.put("cpu_usage_pct", cpuPct);
                 stats.put("ram_usage_pct", ramPct);
@@ -345,67 +345,39 @@ public class AgentService extends Service {
         }
     }
 
-    private int getCpuUsagePercent() {
+        private int getCpuUsagePercent() {
+        // Return a simple instantaneous CPU usage estimate
+        // using /proc/stat with a 200ms sample to get delta.
         try {
-            // Read /proc/stat to calculate CPU usage since boot
-            java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream("/proc/stat")));
-            String line = reader.readLine();
-            reader.close();
-            if (line == null) return -1;
-            String[] parts = line.trim().split("\\s+");
-            // parts[0] is "cpu", then user, nice, system, idle, iowait, irq, softirq, steal, guest, guest_nice
-            long user = Long.parseLong(parts[1]);
-            long nice = Long.parseLong(parts[2]);
-            long system = Long.parseLong(parts[3]);
-            long idle = Long.parseLong(parts[4]);
-            long iowait = Long.parseLong(parts[5]);
-            long irq = Long.parseLong(parts[6]);
-            long softirq = Long.parseLong(parts[7]);
-            long total = user + nice + system + idle + iowait + irq + softirq;
-            long active = total - idle;
-            // We need a previous reading to calculate delta, but we'll do a simple instant reading:
-            // Actually we need two readings. Simpler: use a static cache of previous total/active.
-            // For simplicity, return a sample based on current active/total (not delta) – not accurate.
-            // Better: store previous values in static variables.
-            return (int) (active * 100 / total);
-        } catch (Exception e) {
-            log("CPU error: " + e.getMessage());
-            return -1;
-        }
-    }
-
-    // Static variables for CPU delta calculation
-    private static long prevTotal = 0;
-    private static long prevActive = 0;
-
-    private int getCpuUsageDelta() {
-        try {
-            java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream("/proc/stat")));
-            String line = reader.readLine();
-            reader.close();
-            if (line == null) return -1;
-            String[] parts = line.trim().split("\\s+");
-            long user = Long.parseLong(parts[1]);
-            long nice = Long.parseLong(parts[2]);
-            long system = Long.parseLong(parts[3]);
-            long idle = Long.parseLong(parts[4]);
-            long iowait = Long.parseLong(parts[5]);
-            long irq = Long.parseLong(parts[6]);
-            long softirq = Long.parseLong(parts[7]);
-            long total = user + nice + system + idle + iowait + irq + softirq;
-            long active = total - idle;
-            if (prevTotal == 0) {
-                prevTotal = total;
-                prevActive = active;
-                return 0;
+            long[] readStats() throws Exception {
+                java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream("/proc/stat")));
+                String line = r.readLine();
+                r.close();
+                if (line == null) throw new Exception("Empty /proc/stat");
+                String[] parts = line.trim().split("\\s+");
+                long user = Long.parseLong(parts[1]);
+                long nice = Long.parseLong(parts[2]);
+                long system = Long.parseLong(parts[3]);
+                long idle = Long.parseLong(parts[4]);
+                long iowait = Long.parseLong(parts[5]);
+                long irq = Long.parseLong(parts[6]);
+                long softirq = Long.parseLong(parts[7]);
+                long total = user + nice + system + idle + iowait + irq + softirq;
+                long active = total - idle;
+                return new long[]{total, active};
             }
-            long totalDelta = total - prevTotal;
-            long activeDelta = active - prevActive;
-            prevTotal = total;
-            prevActive = active;
+
+            long[] first = readStats();
+            Thread.sleep(200);
+            long[] second = readStats();
+
+            long totalDelta = second[0] - first[0];
+            long activeDelta = second[1] - first[1];
             if (totalDelta == 0) return 0;
-            return (int) (activeDelta * 100 / totalDelta);
+            int percent = (int) (activeDelta * 100 / totalDelta);
+            return Math.min(100, Math.max(0, percent));
         } catch (Exception e) {
+            log("CPU percent error: " + e.getMessage());
             return -1;
         }
     }
