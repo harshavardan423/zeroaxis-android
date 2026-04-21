@@ -3,15 +3,23 @@ package com.zeroaxis.agent;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
-import android.widget.LinearLayout;
+import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.ArrayList;
@@ -32,21 +40,23 @@ import java.io.StringWriter;
 
 public class LauncherActivity extends AppCompatActivity {
 
-    private LinearLayout appGrid;
+    private RecyclerView rvApps;
     private TextView tvStatus, tvScreenTime;
-    private Button btnLogout;
+    private ProgressBar progressScreenTime;
+    private Button btnLogout, btnRefresh;
     private OkHttpClient client = new OkHttpClient();
     private String flaskUrl;
     private String deviceSerial;
     private String currentUser;
     private JSONObject policies;
-    private List<String> allowedApps = new ArrayList<>();
+    private List<AppItem> allowedApps = new ArrayList<>();
     private Handler handler = new Handler(Looper.getMainLooper());
     private Runnable policySyncRunnable;
     private Runnable screenTimeUpdateRunnable;
-    private int usedToday = 0;          // minutes used today (persistent)
-    private int dailyLimit = 0;         // from policy
-    private String todayDate;            // YYYY-MM-DD
+    private int usedToday = 0;
+    private int dailyLimit = 0;
+    private String todayDate;
+    private AppAdapter adapter;
 
     private void logToFile(String msg) {
         try {
@@ -63,10 +73,12 @@ public class LauncherActivity extends AppCompatActivity {
         try {
             setContentView(R.layout.activity_launcher);
 
-            appGrid = findViewById(R.id.appGrid);
+            rvApps = findViewById(R.id.rvApps);
             tvStatus = findViewById(R.id.tvStatus);
             tvScreenTime = findViewById(R.id.tvScreenTime);
+            progressScreenTime = findViewById(R.id.progressScreenTime);
             btnLogout = findViewById(R.id.btnLogout);
+            btnRefresh = findViewById(R.id.btnRefresh);
 
             flaskUrl = loadFlaskUrl();
             deviceSerial = getSharedPreferences("zeroaxis", MODE_PRIVATE).getString("serial", null);
@@ -81,6 +93,10 @@ public class LauncherActivity extends AppCompatActivity {
             applyPolicies();
 
             btnLogout.setOnClickListener(v -> logout());
+            btnRefresh.setOnClickListener(v -> {
+                syncPolicies();
+                Toast.makeText(this, "Syncing policies...", Toast.LENGTH_SHORT).show();
+            });
 
             policySyncRunnable = () -> {
                 syncPolicies();
@@ -111,8 +127,16 @@ public class LauncherActivity extends AppCompatActivity {
             JSONArray allowed = policies.optJSONArray("allowed_apps");
             allowedApps.clear();
             if (allowed != null) {
+                PackageManager pm = getPackageManager();
                 for (int i = 0; i < allowed.length(); i++) {
-                    allowedApps.add(allowed.getString(i));
+                    String pkg = allowed.getString(i);
+                    try {
+                        String appName = pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString();
+                        Drawable icon = pm.getApplicationIcon(pkg);
+                        allowedApps.add(new AppItem(pkg, appName, icon));
+                    } catch (PackageManager.NameNotFoundException e) {
+                        // App not installed – skip
+                    }
                 }
             }
             dailyLimit = policies.optInt("screen_time_limit_mins", 0);
@@ -154,43 +178,62 @@ public class LauncherActivity extends AppCompatActivity {
     }
 
     private void buildAppGrid() {
-        appGrid.removeAllViews();
         if (allowedApps.isEmpty()) {
             tvStatus.setText("No apps allowed. Contact administrator.");
+            rvApps.setVisibility(View.GONE);
             return;
         }
         tvStatus.setText("Welcome, " + currentUser);
-        PackageManager pm = getPackageManager();
+        rvApps.setVisibility(View.VISIBLE);
+        int columnCount = getResources().getInteger(R.integer.grid_columns);
+        GridLayoutManager layoutManager = new GridLayoutManager(this, columnCount);
+        rvApps.setLayoutManager(layoutManager);
+        adapter = new AppAdapter(allowedApps);
+        rvApps.setAdapter(adapter);
+    }
 
-        LinearLayout currentRow = null;
-        int colCount = 0;
+    private class AppAdapter extends RecyclerView.Adapter<AppAdapter.ViewHolder> {
+        private List<AppItem> apps;
 
-        for (String pkg : allowedApps) {
-            try {
-                pm.getPackageInfo(pkg, 0);
-                Button btn = new Button(this);
-                btn.setText(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString());
-                btn.setOnClickListener(v -> launchApp(pkg));
+        AppAdapter(List<AppItem> apps) { this.apps = apps; }
 
-                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-                params.setMargins(8, 8, 8, 8);
-                btn.setLayoutParams(params);
+        @NonNull
+        @Override
+        public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_app, parent, false);
+            return new ViewHolder(view);
+        }
 
-                if (currentRow == null || colCount >= 2) {
-                    currentRow = new LinearLayout(this);
-                    currentRow.setOrientation(LinearLayout.HORIZONTAL);
-                    currentRow.setLayoutParams(new LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.MATCH_PARENT,
-                            LinearLayout.LayoutParams.WRAP_CONTENT));
-                    appGrid.addView(currentRow);
-                    colCount = 0;
-                }
-                currentRow.addView(btn);
-                colCount++;
-            } catch (PackageManager.NameNotFoundException e) {
-                // App not installed – skip
+        @Override
+        public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+            AppItem app = apps.get(position);
+            holder.tvAppName.setText(app.appName);
+            holder.ivAppIcon.setImageDrawable(app.icon);
+            holder.itemView.setOnClickListener(v -> launchApp(app.packageName));
+        }
+
+        @Override
+        public int getItemCount() { return apps.size(); }
+
+        class ViewHolder extends RecyclerView.ViewHolder {
+            ImageView ivAppIcon;
+            TextView tvAppName;
+            ViewHolder(View itemView) {
+                super(itemView);
+                ivAppIcon = itemView.findViewById(R.id.ivAppIcon);
+                tvAppName = itemView.findViewById(R.id.tvAppName);
             }
+        }
+    }
+
+    private static class AppItem {
+        String packageName;
+        String appName;
+        Drawable icon;
+        AppItem(String pkg, String name, Drawable icon) {
+            this.packageName = pkg;
+            this.appName = name;
+            this.icon = icon;
         }
     }
 
@@ -239,7 +282,6 @@ public class LauncherActivity extends AppCompatActivity {
 
     private void updateScreenTime() {
         try {
-            // Check for date change (midnight)
             Calendar cal = Calendar.getInstance();
             String newDate = cal.get(Calendar.YEAR) + "-" + (cal.get(Calendar.MONTH)+1) + "-" + cal.get(Calendar.DAY_OF_MONTH);
             if (!newDate.equals(todayDate)) {
@@ -253,9 +295,13 @@ public class LauncherActivity extends AppCompatActivity {
 
             int remaining = Math.max(0, dailyLimit - usedToday);
             if (dailyLimit > 0) {
-                tvScreenTime.setText("Screen time today: " + usedToday + " min / " + dailyLimit + " min (" + remaining + " left)");
+                tvScreenTime.setText(usedToday + " min / " + dailyLimit + " min (" + remaining + " left)");
+                int percent = (int) ((usedToday * 100.0) / dailyLimit);
+                progressScreenTime.setProgress(Math.min(percent, 100));
+                progressScreenTime.setVisibility(View.VISIBLE);
             } else {
-                tvScreenTime.setText("Screen time today: " + usedToday + " min (unlimited)");
+                tvScreenTime.setText(usedToday + " min (unlimited)");
+                progressScreenTime.setVisibility(View.GONE);
             }
 
             if (dailyLimit > 0 && usedToday >= dailyLimit) {
@@ -302,12 +348,11 @@ public class LauncherActivity extends AppCompatActivity {
                         prefs.edit().putString("user_policies", pol.toString()).apply();
                         runOnUiThread(() -> {
                             loadPolicies();
-                            // Re-evaluate screen time with the new limit
                             if (dailyLimit > 0 && usedToday >= dailyLimit) {
                                 showScreenTimeExceededDialog();
                             } else {
                                 buildAppGrid();
-                                updateScreenTime(); // refresh display
+                                updateScreenTime();
                             }
                         });
                     } catch (Exception e) { }
@@ -317,7 +362,6 @@ public class LauncherActivity extends AppCompatActivity {
     }
 
     private void logout() {
-        // Save final used minutes before logout
         saveUsedToday();
 
         JSONObject payload = new JSONObject();
