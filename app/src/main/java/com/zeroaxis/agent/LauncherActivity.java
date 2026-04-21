@@ -19,9 +19,14 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.List;
+import okhttp3.Call;
+import okhttp3.Callback;
+import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okhttp3.RequestBody;
 import okhttp3.Response;
+import java.io.IOException;
 
 public class LauncherActivity extends AppCompatActivity {
 
@@ -223,12 +228,12 @@ public class LauncherActivity extends AppCompatActivity {
         Request request = new Request.Builder()
                 .url(flaskUrl + "/api/device/policy/" + deviceSerial)
                 .build();
-        client.newCall(request).enqueue(new okhttp3.Callback() {
+        client.newCall(request).enqueue(new Callback() {
             @Override
-            public void onFailure(okhttp3.Call call, IOException e) { }
+            public void onFailure(Call call, IOException e) { }
 
             @Override
-            public void onResponse(okhttp3.Call call, Response response) throws IOException {
+            public void onResponse(Call call, Response response) throws IOException {
                 if (response.isSuccessful()) {
                     try {
                         JSONObject pol = new JSONObject(response.body().string());
@@ -255,7 +260,7 @@ public class LauncherActivity extends AppCompatActivity {
                 .url(flaskUrl + "/api/enduser/logout")
                 .post(body)
                 .build();
-        client.newCall(request).enqueue(new okhttp3.Callback() {
+        client.newCall(request).enqueue(new Callback() {
             @Override public void onFailure(Call call, IOException e) {}
             @Override public void onResponse(Call call, Response response) throws IOException { response.close(); }
         });
