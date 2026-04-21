@@ -3,12 +3,9 @@ package com.zeroaxis.agent;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.Settings;
-import android.view.View;
 import android.widget.Button;
 import android.widget.GridLayout;
 import android.widget.TextView;
@@ -26,7 +23,11 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 
 public class LauncherActivity extends AppCompatActivity {
 
@@ -43,42 +44,58 @@ public class LauncherActivity extends AppCompatActivity {
     private Runnable policySyncRunnable;
     private Runnable screenTimeUpdateRunnable;
 
+    private void logToFile(String msg) {
+        try {
+            File logFile = new File(getExternalFilesDir(null), "launcher_crash.log");
+            FileWriter fw = new FileWriter(logFile, true);
+            fw.write(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()) + " - " + msg + "\n");
+            fw.close();
+        } catch (Exception e) { }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_launcher);
+        try {
+            setContentView(R.layout.activity_launcher);
 
-        appGrid = findViewById(R.id.appGrid);
-        tvStatus = findViewById(R.id.tvStatus);
-        tvScreenTime = findViewById(R.id.tvScreenTime);
-        btnLogout = findViewById(R.id.btnLogout);
+            appGrid = findViewById(R.id.appGrid);
+            tvStatus = findViewById(R.id.tvStatus);
+            tvScreenTime = findViewById(R.id.tvScreenTime);
+            btnLogout = findViewById(R.id.btnLogout);
 
-        flaskUrl = loadFlaskUrl();
-        deviceSerial = getSharedPreferences("zeroaxis", MODE_PRIVATE).getString("serial", null);
-        currentUser = getSharedPreferences("zeroaxis", MODE_PRIVATE).getString("logged_in_user", null);
-        if (currentUser == null) {
-            logout();
-            return;
+            flaskUrl = loadFlaskUrl();
+            deviceSerial = getSharedPreferences("zeroaxis", MODE_PRIVATE).getString("serial", null);
+            currentUser = getSharedPreferences("zeroaxis", MODE_PRIVATE).getString("logged_in_user", null);
+            if (currentUser == null) {
+                logout();
+                return;
+            }
+
+            loadPolicies();
+            applyPolicies();
+
+            btnLogout.setOnClickListener(v -> logout());
+
+            policySyncRunnable = () -> {
+                syncPolicies();
+                handler.postDelayed(policySyncRunnable, 15 * 60 * 1000);
+            };
+            handler.post(policySyncRunnable);
+
+            screenTimeUpdateRunnable = () -> {
+                updateScreenTime();
+                handler.postDelayed(screenTimeUpdateRunnable, 60 * 1000);
+            };
+            handler.post(screenTimeUpdateRunnable);
+        } catch (Exception e) {
+            logToFile("onCreate crash: " + e.toString());
+            StringWriter sw = new StringWriter();
+            e.printStackTrace(new PrintWriter(sw));
+            logToFile(sw.toString());
+            Toast.makeText(this, "App error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            finish();
         }
-
-        loadPolicies();
-        applyPolicies();
-
-        btnLogout.setOnClickListener(v -> logout());
-
-        // Periodic policy sync every 15 minutes
-        policySyncRunnable = () -> {
-            syncPolicies();
-            handler.postDelayed(policySyncRunnable, 15 * 60 * 1000);
-        };
-        handler.post(policySyncRunnable);
-
-        // Screen time tracking every minute
-        screenTimeUpdateRunnable = () -> {
-            updateScreenTime();
-            handler.postDelayed(screenTimeUpdateRunnable, 60 * 1000);
-        };
-        handler.post(screenTimeUpdateRunnable);
     }
 
     private void loadPolicies() {
@@ -95,24 +112,29 @@ public class LauncherActivity extends AppCompatActivity {
             }
         } catch (Exception e) {
             policies = new JSONObject();
+            allowedApps.clear();
+            logToFile("loadPolicies error: " + e.toString());
         }
     }
 
     private void applyPolicies() {
-        // Check curfew
-        if (isCurfewActive()) {
-            showCurfewDialog();
-            return;
+        try {
+            if (isCurfewActive()) {
+                showCurfewDialog();
+                return;
+            }
+            int limit = (policies != null) ? policies.optInt("screen_time_limit_mins", 0) : 0;
+            int todayUsage = getTodayScreenTime();
+            if (limit > 0 && todayUsage >= limit) {
+                showScreenTimeExceededDialog();
+                return;
+            }
+            buildAppGrid();
+        } catch (Exception e) {
+            logToFile("applyPolicies error: " + e.toString());
+            e.printStackTrace();
+            tvStatus.setText("Error: " + e.getMessage());
         }
-        // Check screen time limit
-        int limit = policies.optInt("screen_time_limit_mins", 0);
-        int todayUsage = getTodayScreenTime();
-        if (limit > 0 && todayUsage >= limit) {
-            showScreenTimeExceededDialog();
-            return;
-        }
-        // Build app grid
-        buildAppGrid();
     }
 
     private void buildAppGrid() {
@@ -125,7 +147,6 @@ public class LauncherActivity extends AppCompatActivity {
         PackageManager pm = getPackageManager();
         for (String pkg : allowedApps) {
             try {
-                // Check if app is installed
                 pm.getPackageInfo(pkg, 0);
                 Button btn = new Button(this);
                 btn.setText(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString());
@@ -143,30 +164,34 @@ public class LauncherActivity extends AppCompatActivity {
     }
 
     private void launchApp(String packageName) {
-        // Check curfew and screen time again before launch
-        if (isCurfewActive()) {
-            showCurfewDialog();
-            return;
-        }
-        int limit = policies.optInt("screen_time_limit_mins", 0);
-        int todayUsage = getTodayScreenTime();
-        if (limit > 0 && todayUsage >= limit) {
-            showScreenTimeExceededDialog();
-            return;
-        }
-        Intent intent = getPackageManager().getLaunchIntentForPackage(packageName);
-        if (intent != null) {
-            startActivity(intent);
-        } else {
-            Toast.makeText(this, "App not found", Toast.LENGTH_SHORT).show();
+        try {
+            if (isCurfewActive()) {
+                showCurfewDialog();
+                return;
+            }
+            int limit = (policies != null) ? policies.optInt("screen_time_limit_mins", 0) : 0;
+            int todayUsage = getTodayScreenTime();
+            if (limit > 0 && todayUsage >= limit) {
+                showScreenTimeExceededDialog();
+                return;
+            }
+            Intent intent = getPackageManager().getLaunchIntentForPackage(packageName);
+            if (intent != null) {
+                startActivity(intent);
+            } else {
+                Toast.makeText(this, "App not found", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception e) {
+            Toast.makeText(this, "Error launching app: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            logToFile("launchApp error: " + e.toString());
         }
     }
 
     private boolean isCurfewActive() {
+        if (policies == null) return false;
         String start = policies.optString("curfew_start", "");
         String end = policies.optString("curfew_end", "");
         if (start.isEmpty() || end.isEmpty()) return false;
-        // Parse HH:MM
         try {
             String[] startParts = start.split(":");
             String[] endParts = end.split(":");
@@ -184,25 +209,33 @@ public class LauncherActivity extends AppCompatActivity {
     }
 
     private int getTodayScreenTime() {
-        // Use UsageStatsHelper to get total foreground minutes today
-        List<UsageStatsHelper.AppUsage> usage = UsageStatsHelper.getTodayUsage(this);
-        int total = 0;
-        for (UsageStatsHelper.AppUsage u : usage) total += u.foregroundMins;
-        return total;
+        try {
+            List<UsageStatsHelper.AppUsage> usage = UsageStatsHelper.getTodayUsage(this);
+            int total = 0;
+            for (UsageStatsHelper.AppUsage u : usage) total += u.foregroundMins;
+            return total;
+        } catch (Exception e) {
+            logToFile("getTodayScreenTime error: " + e.toString());
+            return 0;
+        }
     }
 
     private void updateScreenTime() {
-        int limit = policies.optInt("screen_time_limit_mins", 0);
-        int used = getTodayScreenTime();
-        if (limit > 0) {
-            int remaining = Math.max(0, limit - used);
-            tvScreenTime.setText("Screen time today: " + used + " min / " + limit + " min (" + remaining + " left)");
-        } else {
-            tvScreenTime.setText("Screen time today: " + used + " min");
-        }
-        // If exceeded, lock
-        if (limit > 0 && used >= limit) {
-            showScreenTimeExceededDialog();
+        try {
+            int limit = (policies != null) ? policies.optInt("screen_time_limit_mins", 0) : 0;
+            int used = getTodayScreenTime();
+            if (limit > 0) {
+                int remaining = Math.max(0, limit - used);
+                tvScreenTime.setText("Screen time today: " + used + " min / " + limit + " min (" + remaining + " left)");
+            } else {
+                tvScreenTime.setText("Screen time today: " + used + " min");
+            }
+            if (limit > 0 && used >= limit) {
+                showScreenTimeExceededDialog();
+            }
+        } catch (Exception e) {
+            logToFile("updateScreenTime error: " + e.toString());
+            tvScreenTime.setText("Error: " + e.getMessage());
         }
     }
 
@@ -250,7 +283,6 @@ public class LauncherActivity extends AppCompatActivity {
     }
 
     private void logout() {
-        // Call logout endpoint
         JSONObject payload = new JSONObject();
         try {
             payload.put("device_serial", deviceSerial);
@@ -264,12 +296,10 @@ public class LauncherActivity extends AppCompatActivity {
             @Override public void onFailure(Call call, IOException e) {}
             @Override public void onResponse(Call call, Response response) throws IOException { response.close(); }
         });
-        // Clear user data
         getSharedPreferences("zeroaxis", MODE_PRIVATE).edit()
                 .remove("logged_in_user")
                 .remove("user_policies")
                 .apply();
-        // Go to login screen
         Intent intent = new Intent(LauncherActivity.this, LoginActivity.class);
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         startActivity(intent);
