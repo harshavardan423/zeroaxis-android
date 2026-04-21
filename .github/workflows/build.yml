@@ -2,7 +2,7 @@ name: Build ZeroAxis Agent APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, enterprise ]
   workflow_dispatch:
 
 jobs:
