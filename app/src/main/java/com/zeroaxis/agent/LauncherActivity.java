@@ -7,7 +7,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.widget.Button;
-import android.widget.GridLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.appcompat.app.AlertDialog;
@@ -31,7 +31,7 @@ import java.io.StringWriter;
 
 public class LauncherActivity extends AppCompatActivity {
 
-    private GridLayout appGrid;
+    private LinearLayout appGrid;
     private TextView tvStatus, tvScreenTime;
     private Button btnLogout;
     private OkHttpClient client = new OkHttpClient();
@@ -43,6 +43,7 @@ public class LauncherActivity extends AppCompatActivity {
     private Handler handler = new Handler(Looper.getMainLooper());
     private Runnable policySyncRunnable;
     private Runnable screenTimeUpdateRunnable;
+    private long loginTimeMillis;
 
     private void logToFile(String msg) {
         try {
@@ -73,6 +74,7 @@ public class LauncherActivity extends AppCompatActivity {
             }
 
             loadPolicies();
+            loginTimeMillis = System.currentTimeMillis();
             applyPolicies();
 
             btnLogout.setOnClickListener(v -> logout());
@@ -124,8 +126,8 @@ public class LauncherActivity extends AppCompatActivity {
                 return;
             }
             int limit = (policies != null) ? policies.optInt("screen_time_limit_mins", 0) : 0;
-            int todayUsage = getTodayScreenTime();
-            if (limit > 0 && todayUsage >= limit) {
+            long sessionMinutes = (System.currentTimeMillis() - loginTimeMillis) / (60 * 1000);
+            if (limit > 0 && sessionMinutes >= limit) {
                 showScreenTimeExceededDialog();
                 return;
             }
@@ -145,19 +147,33 @@ public class LauncherActivity extends AppCompatActivity {
         }
         tvStatus.setText("Welcome, " + currentUser);
         PackageManager pm = getPackageManager();
+        
+        LinearLayout currentRow = null;
+        int colCount = 0;
+        
         for (String pkg : allowedApps) {
             try {
                 pm.getPackageInfo(pkg, 0);
                 Button btn = new Button(this);
                 btn.setText(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString());
                 btn.setOnClickListener(v -> launchApp(pkg));
-                GridLayout.LayoutParams params = new GridLayout.LayoutParams();
-                params.width = 0;
-                params.height = GridLayout.LayoutParams.WRAP_CONTENT;
-                params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
-                params.rowSpec = GridLayout.spec(GridLayout.UNDEFINED);
+                
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                params.setMargins(8, 8, 8, 8);
                 btn.setLayoutParams(params);
-                appGrid.addView(btn);
+                
+                if (currentRow == null || colCount >= 2) {
+                    currentRow = new LinearLayout(this);
+                    currentRow.setOrientation(LinearLayout.HORIZONTAL);
+                    currentRow.setLayoutParams(new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT));
+                    appGrid.addView(currentRow);
+                    colCount = 0;
+                }
+                currentRow.addView(btn);
+                colCount++;
             } catch (PackageManager.NameNotFoundException e) {
                 // App not installed – skip
             }
@@ -171,8 +187,8 @@ public class LauncherActivity extends AppCompatActivity {
                 return;
             }
             int limit = (policies != null) ? policies.optInt("screen_time_limit_mins", 0) : 0;
-            int todayUsage = getTodayScreenTime();
-            if (limit > 0 && todayUsage >= limit) {
+            long sessionMinutes = (System.currentTimeMillis() - loginTimeMillis) / (60 * 1000);
+            if (limit > 0 && sessionMinutes >= limit) {
                 showScreenTimeExceededDialog();
                 return;
             }
@@ -209,29 +225,17 @@ public class LauncherActivity extends AppCompatActivity {
         }
     }
 
-    private int getTodayScreenTime() {
-        try {
-            List<UsageStatsHelper.AppUsage> usage = UsageStatsHelper.getTodayUsage(this);
-            int total = 0;
-            for (UsageStatsHelper.AppUsage u : usage) total += u.foregroundMins;
-            return total;
-        } catch (Exception e) {
-            logToFile("getTodayScreenTime error: " + e.toString());
-            return 0;
-        }
-    }
-
     private void updateScreenTime() {
         try {
             int limit = (policies != null) ? policies.optInt("screen_time_limit_mins", 0) : 0;
-            int used = getTodayScreenTime();
+            long sessionMinutes = (System.currentTimeMillis() - loginTimeMillis) / (60 * 1000);
             if (limit > 0) {
-                int remaining = Math.max(0, limit - used);
-                tvScreenTime.setText("Screen time today: " + used + " min / " + limit + " min (" + remaining + " left)");
+                long remaining = Math.max(0, limit - sessionMinutes);
+                tvScreenTime.setText("Session time: " + sessionMinutes + " min / " + limit + " min (" + remaining + " left)");
             } else {
-                tvScreenTime.setText("Screen time today: " + used + " min");
+                tvScreenTime.setText("Session time: " + sessionMinutes + " min (no limit)");
             }
-            if (limit > 0 && used >= limit) {
+            if (limit > 0 && sessionMinutes >= limit) {
                 showScreenTimeExceededDialog();
             }
         } catch (Exception e) {
@@ -252,7 +256,7 @@ public class LauncherActivity extends AppCompatActivity {
     private void showScreenTimeExceededDialog() {
         new AlertDialog.Builder(this)
                 .setTitle("Time Limit Reached")
-                .setMessage("You have reached your daily screen time limit. The device will lock.")
+                .setMessage("You have reached your screen time limit for this session.")
                 .setCancelable(false)
                 .setPositiveButton("OK", (d, w) -> logout())
                 .show();
