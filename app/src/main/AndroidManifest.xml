@@ -72,7 +72,13 @@
         </receiver>
 
         <activity
-            android:name=".MainActivity"
+            android:name=".LoginActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:launchMode="singleTask" />
+
+        <activity
+            android:name=".LauncherActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:launchMode="singleTask" />

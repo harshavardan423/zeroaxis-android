@@ -111,7 +111,7 @@ public class EnrollmentActivity extends AppCompatActivity {
         if (savedSerial != null) {
             log("Already enrolled, starting service");
             ContextCompat.startForegroundService(this, new Intent(this, AgentService.class));
-            startActivity(new Intent(this, MainActivity.class));
+            startActivity(new Intent(this, LoginActivity.class));
             finish();
             return;
         }
