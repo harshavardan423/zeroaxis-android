@@ -15,6 +15,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.List;
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -43,7 +44,9 @@ public class LauncherActivity extends AppCompatActivity {
     private Handler handler = new Handler(Looper.getMainLooper());
     private Runnable policySyncRunnable;
     private Runnable screenTimeUpdateRunnable;
-    private long loginTimeMillis;
+    private int usedToday = 0;          // minutes used today (persistent)
+    private int dailyLimit = 0;         // from policy
+    private String todayDate;            // YYYY-MM-DD
 
     private void logToFile(String msg) {
         try {
@@ -74,7 +77,7 @@ public class LauncherActivity extends AppCompatActivity {
             }
 
             loadPolicies();
-            loginTimeMillis = System.currentTimeMillis();
+            loadUsedToday();
             applyPolicies();
 
             btnLogout.setOnClickListener(v -> logout());
@@ -112,11 +115,25 @@ public class LauncherActivity extends AppCompatActivity {
                     allowedApps.add(allowed.getString(i));
                 }
             }
+            dailyLimit = policies.optInt("screen_time_limit_mins", 0);
         } catch (Exception e) {
             policies = new JSONObject();
             allowedApps.clear();
+            dailyLimit = 0;
             logToFile("loadPolicies error: " + e.toString());
         }
+    }
+
+    private void loadUsedToday() {
+        Calendar cal = Calendar.getInstance();
+        todayDate = cal.get(Calendar.YEAR) + "-" + (cal.get(Calendar.MONTH)+1) + "-" + cal.get(Calendar.DAY_OF_MONTH);
+        SharedPreferences prefs = getSharedPreferences("zeroaxis", MODE_PRIVATE);
+        usedToday = prefs.getInt("screen_time_used_" + currentUser + "_" + todayDate, 0);
+    }
+
+    private void saveUsedToday() {
+        SharedPreferences prefs = getSharedPreferences("zeroaxis", MODE_PRIVATE);
+        prefs.edit().putInt("screen_time_used_" + currentUser + "_" + todayDate, usedToday).apply();
     }
 
     private void applyPolicies() {
@@ -125,16 +142,13 @@ public class LauncherActivity extends AppCompatActivity {
                 showCurfewDialog();
                 return;
             }
-            int limit = (policies != null) ? policies.optInt("screen_time_limit_mins", 0) : 0;
-            long sessionMinutes = (System.currentTimeMillis() - loginTimeMillis) / (60 * 1000);
-            if (limit > 0 && sessionMinutes >= limit) {
+            if (dailyLimit > 0 && usedToday >= dailyLimit) {
                 showScreenTimeExceededDialog();
                 return;
             }
             buildAppGrid();
         } catch (Exception e) {
             logToFile("applyPolicies error: " + e.toString());
-            e.printStackTrace();
             tvStatus.setText("Error: " + e.getMessage());
         }
     }
@@ -147,28 +161,28 @@ public class LauncherActivity extends AppCompatActivity {
         }
         tvStatus.setText("Welcome, " + currentUser);
         PackageManager pm = getPackageManager();
-        
+
         LinearLayout currentRow = null;
         int colCount = 0;
-        
+
         for (String pkg : allowedApps) {
             try {
                 pm.getPackageInfo(pkg, 0);
                 Button btn = new Button(this);
                 btn.setText(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString());
                 btn.setOnClickListener(v -> launchApp(pkg));
-                
+
                 LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
                 params.setMargins(8, 8, 8, 8);
                 btn.setLayoutParams(params);
-                
+
                 if (currentRow == null || colCount >= 2) {
                     currentRow = new LinearLayout(this);
                     currentRow.setOrientation(LinearLayout.HORIZONTAL);
                     currentRow.setLayoutParams(new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT));
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT));
                     appGrid.addView(currentRow);
                     colCount = 0;
                 }
@@ -186,9 +200,7 @@ public class LauncherActivity extends AppCompatActivity {
                 showCurfewDialog();
                 return;
             }
-            int limit = (policies != null) ? policies.optInt("screen_time_limit_mins", 0) : 0;
-            long sessionMinutes = (System.currentTimeMillis() - loginTimeMillis) / (60 * 1000);
-            if (limit > 0 && sessionMinutes >= limit) {
+            if (dailyLimit > 0 && usedToday >= dailyLimit) {
                 showScreenTimeExceededDialog();
                 return;
             }
@@ -227,15 +239,26 @@ public class LauncherActivity extends AppCompatActivity {
 
     private void updateScreenTime() {
         try {
-            int limit = (policies != null) ? policies.optInt("screen_time_limit_mins", 0) : 0;
-            long sessionMinutes = (System.currentTimeMillis() - loginTimeMillis) / (60 * 1000);
-            if (limit > 0) {
-                long remaining = Math.max(0, limit - sessionMinutes);
-                tvScreenTime.setText("Session time: " + sessionMinutes + " min / " + limit + " min (" + remaining + " left)");
-            } else {
-                tvScreenTime.setText("Session time: " + sessionMinutes + " min (no limit)");
+            // Check for date change (midnight)
+            Calendar cal = Calendar.getInstance();
+            String newDate = cal.get(Calendar.YEAR) + "-" + (cal.get(Calendar.MONTH)+1) + "-" + cal.get(Calendar.DAY_OF_MONTH);
+            if (!newDate.equals(todayDate)) {
+                todayDate = newDate;
+                usedToday = 0;
+                saveUsedToday();
             }
-            if (limit > 0 && sessionMinutes >= limit) {
+
+            usedToday++;
+            saveUsedToday();
+
+            int remaining = Math.max(0, dailyLimit - usedToday);
+            if (dailyLimit > 0) {
+                tvScreenTime.setText("Screen time today: " + usedToday + " min / " + dailyLimit + " min (" + remaining + " left)");
+            } else {
+                tvScreenTime.setText("Screen time today: " + usedToday + " min (unlimited)");
+            }
+
+            if (dailyLimit > 0 && usedToday >= dailyLimit) {
                 showScreenTimeExceededDialog();
             }
         } catch (Exception e) {
@@ -256,7 +279,7 @@ public class LauncherActivity extends AppCompatActivity {
     private void showScreenTimeExceededDialog() {
         new AlertDialog.Builder(this)
                 .setTitle("Time Limit Reached")
-                .setMessage("You have reached your screen time limit for this session.")
+                .setMessage("You have reached your daily screen time limit. The device will lock.")
                 .setCancelable(false)
                 .setPositiveButton("OK", (d, w) -> logout())
                 .show();
@@ -279,7 +302,13 @@ public class LauncherActivity extends AppCompatActivity {
                         prefs.edit().putString("user_policies", pol.toString()).apply();
                         runOnUiThread(() -> {
                             loadPolicies();
-                            applyPolicies();
+                            // Re-evaluate screen time with the new limit
+                            if (dailyLimit > 0 && usedToday >= dailyLimit) {
+                                showScreenTimeExceededDialog();
+                            } else {
+                                buildAppGrid();
+                                updateScreenTime(); // refresh display
+                            }
                         });
                     } catch (Exception e) { }
                 }
@@ -288,6 +317,9 @@ public class LauncherActivity extends AppCompatActivity {
     }
 
     private void logout() {
+        // Save final used minutes before logout
+        saveUsedToday();
+
         JSONObject payload = new JSONObject();
         try {
             payload.put("device_serial", deviceSerial);
