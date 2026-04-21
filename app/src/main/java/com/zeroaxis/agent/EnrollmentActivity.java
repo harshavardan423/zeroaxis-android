@@ -448,12 +448,12 @@ public class EnrollmentActivity extends AppCompatActivity {
         Intent svc = new Intent(this, AgentService.class);
         ContextCompat.startForegroundService(this, svc);
 
-        // Launch MainActivity instead of finishing (so user sees status screen)
-        Intent main = new Intent(this, MainActivity.class);
-        main.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-        startActivity(main);
+        // Launch LoginActivity (user must authenticate)
+        Intent login = new Intent(this, LoginActivity.class);
+        login.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        startActivity(login);
         finish();
-        log("Enrollment finished, launched MainActivity");
+        log("Enrollment finished, launched LoginActivity");
     }
 
     private void installHeadwindSilent() {
