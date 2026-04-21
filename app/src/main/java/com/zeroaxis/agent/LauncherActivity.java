@@ -78,6 +78,8 @@ public class LauncherActivity extends AppCompatActivity {
             tvScreenTime = findViewById(R.id.tvScreenTime);
             progressScreenTime = findViewById(R.id.progressScreenTime);
             btnLogout = findViewById(R.id.btnLogout);
+            Button btnBrowser = findViewById(R.id.btnBrowser);
+            Button btnDocuments = findViewById(R.id.btnDocuments);
             btnRefresh = findViewById(R.id.btnRefresh);
 
             flaskUrl = loadFlaskUrl();
@@ -171,6 +173,7 @@ public class LauncherActivity extends AppCompatActivity {
                 return;
             }
             buildAppGrid();
+            setupSpecialButtons();
         } catch (Exception e) {
             logToFile("applyPolicies error: " + e.toString());
             tvStatus.setText("Error: " + e.getMessage());
@@ -352,6 +355,7 @@ public class LauncherActivity extends AppCompatActivity {
                                 showScreenTimeExceededDialog();
                             } else {
                                 buildAppGrid();
+                                setupSpecialButtons();
                                 updateScreenTime();
                             }
                         });
@@ -404,5 +408,26 @@ public class LauncherActivity extends AppCompatActivity {
         super.onDestroy();
         handler.removeCallbacks(policySyncRunnable);
         handler.removeCallbacks(screenTimeUpdateRunnable);
+    }
+
+    private void setupSpecialButtons() {
+        Button btnBrowser = findViewById(R.id.btnBrowser);
+        Button btnDocuments = findViewById(R.id.btnDocuments);
+        String browserPkg = policies.optString("allowed_browser", "");
+        String docViewerPkg = policies.optString("allowed_document_viewer", "");
+
+        if (browserPkg.isEmpty()) {
+            btnBrowser.setVisibility(View.GONE);
+        } else {
+            btnBrowser.setVisibility(View.VISIBLE);
+            btnBrowser.setOnClickListener(v -> launchApp(browserPkg));
+        }
+
+        if (docViewerPkg.isEmpty()) {
+            btnDocuments.setVisibility(View.GONE);
+        } else {
+            btnDocuments.setVisibility(View.VISIBLE);
+            btnDocuments.setOnClickListener(v -> launchApp(docViewerPkg));
+        }
     }
 }
