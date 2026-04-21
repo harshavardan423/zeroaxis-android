@@ -155,6 +155,7 @@ public class LauncherActivity extends AppCompatActivity {
                 params.width = 0;
                 params.height = GridLayout.LayoutParams.WRAP_CONTENT;
                 params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
+                params.rowSpec = GridLayout.spec(GridLayout.UNDEFINED);
                 btn.setLayoutParams(params);
                 appGrid.addView(btn);
             } catch (PackageManager.NameNotFoundException e) {
