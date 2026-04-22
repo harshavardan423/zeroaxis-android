@@ -546,11 +546,11 @@ public class AgentService extends Service {
             android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(activeNetwork);
             if (caps == null) return null;
 
-            int subscriberId = -1;
+            String subscriberId = null;
             if (networkType == ConnectivityManager.TYPE_MOBILE) {
                 android.telephony.TelephonyManager tm = (android.telephony.TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
                 if (tm.getSimState() == android.telephony.TelephonyManager.SIM_STATE_READY) {
-                    subscriberId = Integer.parseInt(tm.getSubscriberId()); // IMSI as int
+                    subscriberId = tm.getSubscriberId(); // IMSI as String
                 }
             }
 
@@ -567,50 +567,6 @@ public class AgentService extends Service {
             }
         } catch (Exception e) {
             log("getNetworkBytes error: " + e.getMessage());
-        }
-        return null;
-    }    private long[] getWifiRxTxBytes() {
-        try {
-            java.io.BufferedReader reader = new java.io.BufferedReader(
-                new java.io.InputStreamReader(
-                    new java.io.FileInputStream("/proc/net/dev")));
-            String line;
-            while ((line = reader.readLine()) != null) {
-                line = line.trim();
-                if (line.startsWith("wlan0:")) {
-                    String[] parts = line.split("\\s+");
-                    long rx = Long.parseLong(parts[1]);
-                    long tx = Long.parseLong(parts[9]);
-                    reader.close();
-                    return new long[]{rx, tx};
-                }
-            }
-            reader.close();
-        } catch (Exception e) {
-            log("getWifiRxTxBytes error: " + e.getMessage());
-        }
-        return null;
-    }
-
-    private long[] getMobileRxTxBytes() {
-        try {
-            java.io.BufferedReader reader = new java.io.BufferedReader(
-                new java.io.InputStreamReader(
-                    new java.io.FileInputStream("/proc/net/dev")));
-            String line;
-            while ((line = reader.readLine()) != null) {
-                line = line.trim();
-                if (line.startsWith("rmnet") || line.startsWith("ccmni") || line.startsWith("rmnet_data")) {
-                    String[] parts = line.split("\\s+");
-                    long rx = Long.parseLong(parts[1]);
-                    long tx = Long.parseLong(parts[9]);
-                    reader.close();
-                    return new long[]{rx, tx};
-                }
-            }
-            reader.close();
-        } catch (Exception e) {
-            log("getMobileRxTxBytes error: " + e.getMessage());
         }
         return null;
     }
