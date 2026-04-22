@@ -17,6 +17,10 @@ import org.json.JSONObject;
 import java.io.InputStream;
 import java.net.URL;
 import java.io.File;
+import org.json.JSONArray;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.HashSet;
 
 public class CommandExecutor {
     private static final String CHANNEL_ID = "zeroaxis_cmd";
@@ -96,6 +100,16 @@ public class CommandExecutor {
                 break;
             case "av_ignore":
                 // No action needed on device
+                break;
+            case "block_domains":
+                JSONArray domainsArr = payload.optJSONArray("domains");
+                if (domainsArr != null) {
+                    List<String> domains = new ArrayList<>();
+                    for (int i = 0; i < domainsArr.length(); i++) {
+                        domains.add(domainsArr.getString(i));
+                    }
+                    executeBlockDomains(domains);
+                }
                 break;
             default:
                 throw new Exception("Unknown command: " + command);
@@ -265,5 +279,21 @@ public class CommandExecutor {
         } catch (Exception e) {
             return "https://zeroaxis.live";
         }
+    }
+
+    private void executeBlockDomains(List<String> domains) {
+        log("Blocking domains: " + domains);
+        ctx.getSharedPreferences("zeroaxis", Context.MODE_PRIVATE)
+            .edit()
+            .putStringSet("blocked_domains", new java.util.HashSet<>(domains))
+            .apply();
+        NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+        Notification notif = new NotificationCompat.Builder(ctx, CHANNEL_ID)
+                .setContentTitle("Domain Blocking Updated")
+                .setContentText(domains.size() + " domain(s) blocked")
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setAutoCancel(true)
+                .build();
+        nm.notify(notifSeq++, notif);
     }
 }

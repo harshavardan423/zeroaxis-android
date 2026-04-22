@@ -22,6 +22,8 @@ import android.os.Build;
 import androidx.core.app.NotificationCompat;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import java.util.ArrayList;
+import java.util.List;
 import java.io.File;
 import java.io.InputStream;
 import java.text.SimpleDateFormat;
@@ -246,6 +248,36 @@ public class AgentService extends Service {
 
             post("/api/devices/" + serial + "/stats", stats);
             log("Stats POST sent");
+
+            // --- Network Usage & DNS Domains ---
+            try {
+                JSONObject netStats = new JSONObject();
+                // Collect Wi-Fi RX/TX bytes (from /proc/net/dev)
+                long[] wifiBytes = getWifiRxTxBytes();
+                if (wifiBytes != null) {
+                    netStats.put("wifi_rx_bytes", wifiBytes[0]);
+                    netStats.put("wifi_tx_bytes", wifiBytes[1]);
+                }
+                // Collect mobile data RX/TX bytes
+                long[] mobileBytes = getMobileRxTxBytes();
+                if (mobileBytes != null) {
+                    netStats.put("mobile_rx_bytes", mobileBytes[0]);
+                    netStats.put("mobile_tx_bytes", mobileBytes[1]);
+                }
+                // Collect DNS domains
+                List<String> domains = collectDnsDomains();
+                if (!domains.isEmpty()) {
+                    JSONArray dnsArr = new JSONArray();
+                    for (String d : domains) dnsArr.put(d);
+                    netStats.put("dns_domains", dnsArr);
+                }
+                if (netStats.length() > 0) {
+                    post("/api/devices/" + serial + "/network_usage", netStats);
+                    log("Network usage POST sent, domains=" + domains.size());
+                }
+            } catch (Exception e) {
+                log("Network usage error: " + e.getMessage());
+            }
 
             if (usage != null && !usage.isEmpty()) {
                 try {
@@ -490,6 +522,87 @@ public class AgentService extends Service {
         Request req = new Request.Builder()
                 .url(flaskUrl + path).post(rb).build();
         client.newCall(req).execute().close();
+    }
+
+    // --- Network stats helpers ---
+    private long[] getWifiRxTxBytes() {
+        try {
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                new java.io.InputStreamReader(
+                    new java.io.FileInputStream("/proc/net/dev")));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                if (line.startsWith("wlan0:")) {
+                    String[] parts = line.split("\\s+");
+                    long rx = Long.parseLong(parts[1]);
+                    long tx = Long.parseLong(parts[9]);
+                    reader.close();
+                    return new long[]{rx, tx};
+                }
+            }
+            reader.close();
+        } catch (Exception e) {
+            log("getWifiRxTxBytes error: " + e.getMessage());
+        }
+        return null;
+    }
+
+    private long[] getMobileRxTxBytes() {
+        try {
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                new java.io.InputStreamReader(
+                    new java.io.FileInputStream("/proc/net/dev")));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                if (line.startsWith("rmnet") || line.startsWith("ccmni") || line.startsWith("rmnet_data")) {
+                    String[] parts = line.split("\\s+");
+                    long rx = Long.parseLong(parts[1]);
+                    long tx = Long.parseLong(parts[9]);
+                    reader.close();
+                    return new long[]{rx, tx};
+                }
+            }
+            reader.close();
+        } catch (Exception e) {
+            log("getMobileRxTxBytes error: " + e.getMessage());
+        }
+        return null;
+    }
+
+    private List<String> collectDnsDomains() {
+        List<String> domains = new ArrayList<>();
+        try {
+            Process process = Runtime.getRuntime().exec("dumpsys connectivity --recent");
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                new java.io.InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String lower = line.toLowerCase();
+                if (lower.contains("dns query:") || lower.contains("dns query:")) {
+                    int idx = lower.indexOf("dns query:");
+                    if (idx >= 0) {
+                        String after = line.substring(idx + "dns query:".length()).trim();
+                        String[] parts = after.split("[\\s,;]+");
+                        if (parts.length > 0) {
+                            String domain = parts[0].toLowerCase().trim();
+                            if (domain.matches("^[a-z0-9.-]+\\.[a-z]{2,}$")) {
+                                if (!domains.contains(domain)) domains.add(domain);
+                            }
+                        }
+                    }
+                }
+            }
+            reader.close();
+            process.waitFor();
+            if (!domains.isEmpty()) {
+                log("DNS domains collected: " + domains.size());
+            }
+        } catch (Exception e) {
+            log("collectDnsDomains error: " + e.getMessage());
+        }
+        return domains;
     }
 
     private String loadConfig() {
