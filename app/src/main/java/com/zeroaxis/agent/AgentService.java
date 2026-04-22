@@ -19,6 +19,10 @@ import android.net.wifi.WifiInfo;
 import android.os.Debug;
 import android.app.ActivityManager;
 import android.os.Build;
+import android.app.usage.NetworkStats;
+import android.app.usage.NetworkStatsManager;
+import android.net.ConnectivityManager;
+import android.telephony.TelephonyManager;
 import androidx.core.app.NotificationCompat;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -526,6 +530,46 @@ public class AgentService extends Service {
 
     // --- Network stats helpers ---
     private long[] getWifiRxTxBytes() {
+        return getNetworkBytes(ConnectivityManager.TYPE_WIFI);
+    }
+
+    private long[] getMobileRxTxBytes() {
+        return getNetworkBytes(ConnectivityManager.TYPE_MOBILE);
+    }
+
+    private long[] getNetworkBytes(int networkType) {
+        try {
+            NetworkStatsManager manager = (NetworkStatsManager) getSystemService(Context.NETWORK_STATS_SERVICE);
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            android.net.Network activeNetwork = cm.getActiveNetwork();
+            if (activeNetwork == null) return null;
+            android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(activeNetwork);
+            if (caps == null) return null;
+
+            int subscriberId = -1;
+            if (networkType == ConnectivityManager.TYPE_MOBILE) {
+                android.telephony.TelephonyManager tm = (android.telephony.TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
+                if (tm.getSimState() == android.telephony.TelephonyManager.SIM_STATE_READY) {
+                    subscriberId = Integer.parseInt(tm.getSubscriberId()); // IMSI as int
+                }
+            }
+
+            long start = System.currentTimeMillis() - 24 * 3600 * 1000L;
+            long end = System.currentTimeMillis();
+            NetworkStats.Bucket bucket = manager.querySummaryForDevice(networkType, subscriberId, start, end);
+            if (bucket != null) {
+                long rx = bucket.getRxBytes();
+                long tx = bucket.getTxBytes();
+                if (rx > 0 || tx > 0) {
+                    log("NetworkStats: type=" + networkType + " rx=" + rx + " tx=" + tx);
+                    return new long[]{rx, tx};
+                }
+            }
+        } catch (Exception e) {
+            log("getNetworkBytes error: " + e.getMessage());
+        }
+        return null;
+    }    private long[] getWifiRxTxBytes() {
         try {
             java.io.BufferedReader reader = new java.io.BufferedReader(
                 new java.io.InputStreamReader(
