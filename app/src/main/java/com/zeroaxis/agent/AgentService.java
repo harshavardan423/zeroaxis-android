@@ -548,9 +548,21 @@ public class AgentService extends Service {
 
             String subscriberId = null;
             if (networkType == ConnectivityManager.TYPE_MOBILE) {
-                android.telephony.TelephonyManager tm = (android.telephony.TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
-                if (tm.getSimState() == android.telephony.TelephonyManager.SIM_STATE_READY) {
-                    subscriberId = tm.getSubscriberId(); // IMSI as String
+                // Use SubscriptionManager to get the default data subscription ID
+                android.telephony.SubscriptionManager subMgr = (android.telephony.SubscriptionManager) 
+                        getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE);
+                int defaultSubId = subMgr.getDefaultDataSubscriptionId();
+                if (defaultSubId != -1) {
+                    android.telephony.TelephonyManager tm = (android.telephony.TelephonyManager) 
+                            getSystemService(Context.TELEPHONY_SERVICE);
+                    tm = tm.createForSubscriptionId(defaultSubId);
+                    if (tm != null) {
+                        subscriberId = tm.getSubscriberId(); // IMSI as String
+                        log("Mobile subscriberId obtained: " + subscriberId);
+                    }
+                }
+                if (subscriberId == null) {
+                    log("Could not get subscriberId for mobile data");
                 }
             }
 
