@@ -39,6 +39,7 @@ public class EnrollmentActivity extends AppCompatActivity {
 
     private static final int REQ_LOCATION      = 1001;
     private static final int REQ_NOTIFICATIONS = 1002;
+    private static final int REQ_VPN           = 1003;
     private static String DEBUG_LOG = null;
 
     private String flaskUrl;
@@ -271,7 +272,8 @@ public class EnrollmentActivity extends AppCompatActivity {
             case 1: requestNotificationPermission(); break;
             case 2: openUsageAccessSettings(); break;
             case 3: requestDeviceAdmin(); break;
-            case 4: finishEnrollment(); break;
+            case 4: requestVpnPermission(); break;
+            case 5: finishEnrollment(); break;
         }
     }
 
@@ -397,6 +399,18 @@ public class EnrollmentActivity extends AppCompatActivity {
         }
     }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_VPN) {
+            if (resultCode == RESULT_OK) {
+                startForegroundService(new Intent(this, DnsVpnService.class));
+            }
+            enrollStep = 5;
+            handleEnrollTap();
+        }
+    }
+
     private void openUsageAccessSettings() {
         if (UsageStatsHelper.hasPermission(this)) {
             enrollStep = 3;
@@ -425,7 +439,7 @@ public class EnrollmentActivity extends AppCompatActivity {
         ComponentName admin = new ComponentName(this, ZeroAxisAdminReceiver.class);
         if (dpm.isAdminActive(admin)) {
             enrollStep = 4;
-            finishEnrollment();
+            handleEnrollTap();  // go to VPN step instead of finishing
             return;
         }
         statusText.setText("Step 3 of 3 — Device Admin\n\n" +
@@ -439,9 +453,19 @@ public class EnrollmentActivity extends AppCompatActivity {
             startActivity(intent);
             enrollStep = 4;
             enrollButton.setText("Finish →");
-            enrollButton.setOnClickListener(v2 -> finishEnrollment());
+            enrollButton.setOnClickListener(v2 -> handleEnrollTap());  // go to VPN step
         });
         enrollStep = 3;
+    }
+
+    private void requestVpnPermission() {
+        Intent vpnIntent = android.net.VpnService.prepare(this);
+        if (vpnIntent != null) {
+            startActivityForResult(vpnIntent, REQ_VPN);
+        } else {
+            enrollStep = 5;
+            handleEnrollTap();
+        }
     }
 
     private void finishEnrollment() {
