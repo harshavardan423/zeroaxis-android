@@ -44,10 +44,23 @@ public class DnsVpnService extends VpnService {
     private volatile boolean running = false;
 
     private final List<String> dnsLogBatch = new ArrayList<>();
+    private volatile Set<String> blockedDomains = new HashSet<>();
+    private final android.content.BroadcastReceiver domainsReceiver = new android.content.BroadcastReceiver() {
+        @Override public void onReceive(android.content.Context context, Intent intent) {
+            reloadBlockedDomains();
+        }
+    };
     private long lastFlushMs = 0;
     private OkHttpClient httpClient;
     private String flaskUrl;
     private String serial;
+
+    private void reloadBlockedDomains() {
+        Set<String> stored = getSharedPreferences("zeroaxis", MODE_PRIVATE)
+                .getStringSet("blocked_domains", new HashSet<>());
+        blockedDomains = new HashSet<>(stored); // copy to break cache reference
+        Log.d(TAG, "Reloaded blocked domains: " + blockedDomains.size());
+    }
 
     @Override
     public void onCreate() {
@@ -58,6 +71,26 @@ public class DnsVpnService extends VpnService {
                 .getString("serial", android.os.Build.SERIAL);
         createNotificationChannel();
         startForeground(NOTIF_ID, buildNotification());
+        reloadBlockedDomains();
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this)
+                .registerReceiver(domainsReceiver,
+                        new android.content.IntentFilter("com.zeroaxis.DOMAINS_UPDATED"));
+    }
+
+    @Override
+    public void onDestroy() {
+        running = false;
+        List<String> remaining;
+        synchronized (dnsLogBatch) {
+            remaining = new ArrayList<>(dnsLogBatch);
+            dnsLogBatch.clear();
+        }
+        if (!remaining.isEmpty()) flushDnsLog(remaining);
+        if (executor != null) executor.shutdownNow();
+        closeTunnel();
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this)
+                .unregisterReceiver(domainsReceiver);
+        super.onDestroy();
     }
 
     @Override
@@ -67,14 +100,6 @@ public class DnsVpnService extends VpnService {
         executor = Executors.newCachedThreadPool();
         executor.submit(this::runVpn);
         return START_STICKY;
-    }
-
-    @Override
-    public void onDestroy() {
-        running = false;
-        if (executor != null) executor.shutdownNow();
-        closeTunnel();
-        super.onDestroy();
     }
 
     private void runVpn() {
@@ -223,9 +248,7 @@ public class DnsVpnService extends VpnService {
     }
 
     private boolean isDomainBlocked(String domain) {
-        Set<String> blocked = getSharedPreferences("zeroaxis", MODE_PRIVATE)
-                .getStringSet("blocked_domains", new HashSet<>());
-        for (String rule : blocked) {
+        for (String rule : blockedDomains) {
             if (domain.equals(rule) || domain.endsWith("." + rule)) {
                 return true;
             }

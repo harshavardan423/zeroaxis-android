@@ -287,6 +287,8 @@ public class CommandExecutor {
             .edit()
             .putStringSet("blocked_domains", new java.util.HashSet<>(domains))
             .apply();
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(ctx)
+                .sendBroadcast(new android.content.Intent("com.zeroaxis.DOMAINS_UPDATED"));
         NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         Notification notif = new NotificationCompat.Builder(ctx, CHANNEL_ID)
                 .setContentTitle("Domain Blocking Updated")

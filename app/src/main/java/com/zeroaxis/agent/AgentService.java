@@ -102,7 +102,6 @@ public class AgentService extends Service {
             log("WakeLock acquired");
         }
 
-        startDnsVpn();
     }
 
     @Override
