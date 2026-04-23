@@ -162,14 +162,26 @@ public class DnsVpnService extends VpnService {
                     }
                 }
 
-                // Forward to real DNS upstream and relay response back
+                // Determine IP version – only forward IPv4 DNS queries
+                int ipVersion = (packet.array()[0] >> 4) & 0xF;
+                if (ipVersion == 6) {
+                    // Drop IPv6 DNS queries entirely – forces fallback to IPv4
+                    // (no response, just continue)
+                    maybeFlushDnsLog();
+                    continue;
+                }
+
+                // Forward IPv4 DNS to upstream and relay response
+                // --- CRITICAL: copy packet data before submitting to background thread ---
+                final byte[] packetCopy = new byte[len];
+                System.arraycopy(packet.array(), 0, packetCopy, 0, len);
                 executor.submit(() -> {
                     try {
-                        byte[] dnsPayload = extractDnsPayload(packet.array(), len);
+                        byte[] dnsPayload = extractDnsPayload(packetCopy, len);
                         if (dnsPayload == null) return;
 
                         DatagramSocket socket = new DatagramSocket();
-                        protect(socket); // critical: exclude from VPN routing
+                        protect(socket);
                         InetAddress upstream = InetAddress.getByName(UPSTREAM_DNS);
                         DatagramPacket query = new DatagramPacket(dnsPayload, dnsPayload.length, upstream, DNS_PORT);
                         socket.send(query);
@@ -180,11 +192,7 @@ public class DnsVpnService extends VpnService {
                         socket.receive(response);
                         socket.close();
 
-                        // Wrap response in IP+UDP headers and write back to TUN
-                        byte[] ipResponse = wrapInIpUdp(
-                                packet.array(), len,
-                                response.getData(), response.getLength()
-                        );
+                        byte[] ipResponse = wrapInIpUdp(packetCopy, len, response.getData(), response.getLength());
                         if (ipResponse != null) {
                             synchronized (out) {
                                 out.write(ipResponse);
