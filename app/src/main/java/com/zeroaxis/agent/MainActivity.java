@@ -58,17 +58,15 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         refresh();
 
-        // Check if VPN permission is needed (set by AgentService)
-        SharedPreferences prefs = getSharedPreferences("zeroaxis", MODE_PRIVATE);
-        if (prefs.getBoolean("vpn_permission_needed", false)) {
-            Intent intent = android.net.VpnService.prepare(this);
-            if (intent != null) {
-                startActivityForResult(intent, VPN_REQUEST_CODE);
-            } else {
-                // Already granted – clear flag and start VPN
-                prefs.edit().putBoolean("vpn_permission_needed", false).apply();
-                startForegroundService(new Intent(this, DnsVpnService.class));
-            }
+        // Directly check VPN permission – Android remembers user's choice
+        Intent vpnIntent = android.net.VpnService.prepare(this);
+        if (vpnIntent != null) {
+            // Permission not granted yet – show system dialog
+            startActivityForResult(vpnIntent, VPN_REQUEST_CODE);
+        } else {
+            // Permission already granted – start VPN service if not already running
+            // (starting again is harmless; service will ignore if already running)
+            startForegroundService(new Intent(this, DnsVpnService.class));
         }
 
         if (pendingScanType != null) {

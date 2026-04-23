@@ -587,12 +587,9 @@ public class AgentService extends Service {
 
     private void startDnsVpn() {
         // Check if VPN permission is already granted
-        android.net.VpnService.prepare(this); // returns null if already granted
         if (android.net.VpnService.prepare(this) != null) {
-            // Need user permission – set a flag for MainActivity to handle
-            getSharedPreferences("zeroaxis", MODE_PRIVATE)
-                    .edit().putBoolean("vpn_permission_needed", true).apply();
-            log("VPN permission not granted – waiting for MainActivity");
+            // Permission missing – MainActivity will request it
+            log("VPN permission not granted – MainActivity will request it");
             return;
         }
         Intent vpnIntent = new Intent(this, DnsVpnService.class);
