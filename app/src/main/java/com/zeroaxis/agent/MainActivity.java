@@ -17,6 +17,7 @@ import java.util.Locale;
 public class MainActivity extends AppCompatActivity {
 
     private static final int REQ_MEDIA_PERMISSIONS = 2001;
+    private static final int VPN_REQUEST_CODE = 1001;
     // REQ_DOWNLOADS_FOLDER removed
 
     private String  pendingScanType     = null;
@@ -56,6 +57,19 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         refresh();
+
+        // Check if VPN permission is needed (set by AgentService)
+        SharedPreferences prefs = getSharedPreferences("zeroaxis", MODE_PRIVATE);
+        if (prefs.getBoolean("vpn_permission_needed", false)) {
+            Intent intent = android.net.VpnService.prepare(this);
+            if (intent != null) {
+                startActivityForResult(intent, VPN_REQUEST_CODE);
+            } else {
+                // Already granted – clear flag and start VPN
+                prefs.edit().putBoolean("vpn_permission_needed", false).apply();
+                startForegroundService(new Intent(this, DnsVpnService.class));
+            }
+        }
 
         if (pendingScanType != null) {
             String type     = pendingScanType;
@@ -157,6 +171,16 @@ public class MainActivity extends AppCompatActivity {
             String serial   = pendingScanSerial;
             String flaskUrl = pendingScanFlaskUrl;
             launchScan(type, serial, flaskUrl);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == VPN_REQUEST_CODE && resultCode == RESULT_OK) {
+            SharedPreferences prefs = getSharedPreferences("zeroaxis", MODE_PRIVATE);
+            prefs.edit().putBoolean("vpn_permission_needed", false).apply();
+            startForegroundService(new Intent(this, DnsVpnService.class));
         }
     }
 

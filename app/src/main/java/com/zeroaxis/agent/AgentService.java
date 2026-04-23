@@ -39,6 +39,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import androidx.core.content.ContextCompat;
 
 public class AgentService extends Service {
 
@@ -100,6 +101,8 @@ public class AgentService extends Service {
             wakeLock.acquire();
             log("WakeLock acquired");
         }
+
+        startDnsVpn();
     }
 
     @Override
@@ -268,16 +271,10 @@ public class AgentService extends Service {
                     netStats.put("mobile_rx_bytes", mobileBytes[0]);
                     netStats.put("mobile_tx_bytes", mobileBytes[1]);
                 }
-                // Collect DNS domains
-                List<String> domains = collectDnsDomains();
-                if (!domains.isEmpty()) {
-                    JSONArray dnsArr = new JSONArray();
-                    for (String d : domains) dnsArr.put(d);
-                    netStats.put("dns_domains", dnsArr);
-                }
+                // DNS collection moved to DnsVpnService – domains are sent directly.
                 if (netStats.length() > 0) {
                     post("/api/devices/" + serial + "/network_usage", netStats);
-                    log("Network usage POST sent, domains=" + domains.size());
+                    log("Network usage POST sent (DNS domains now handled by DnsVpnService)");
                 }
             } catch (Exception e) {
                 log("Network usage error: " + e.getMessage());
@@ -583,38 +580,24 @@ public class AgentService extends Service {
         return null;
     }
 
+    // DNS collection is now handled by DnsVpnService.
     private List<String> collectDnsDomains() {
-        List<String> domains = new ArrayList<>();
-        try {
-            Process process = Runtime.getRuntime().exec("dumpsys connectivity --recent");
-            java.io.BufferedReader reader = new java.io.BufferedReader(
-                new java.io.InputStreamReader(process.getInputStream()));
-            String line;
-            while ((line = reader.readLine()) != null) {
-                String lower = line.toLowerCase();
-                if (lower.contains("dns query:") || lower.contains("dns query:")) {
-                    int idx = lower.indexOf("dns query:");
-                    if (idx >= 0) {
-                        String after = line.substring(idx + "dns query:".length()).trim();
-                        String[] parts = after.split("[\\s,;]+");
-                        if (parts.length > 0) {
-                            String domain = parts[0].toLowerCase().trim();
-                            if (domain.matches("^[a-z0-9.-]+\\.[a-z]{2,}$")) {
-                                if (!domains.contains(domain)) domains.add(domain);
-                            }
-                        }
-                    }
-                }
-            }
-            reader.close();
-            process.waitFor();
-            if (!domains.isEmpty()) {
-                log("DNS domains collected: " + domains.size());
-            }
-        } catch (Exception e) {
-            log("collectDnsDomains error: " + e.getMessage());
+        return new ArrayList<>();
+    }
+
+    private void startDnsVpn() {
+        // Check if VPN permission is already granted
+        android.net.VpnService.prepare(this); // returns null if already granted
+        if (android.net.VpnService.prepare(this) != null) {
+            // Need user permission – set a flag for MainActivity to handle
+            getSharedPreferences("zeroaxis", MODE_PRIVATE)
+                    .edit().putBoolean("vpn_permission_needed", true).apply();
+            log("VPN permission not granted – waiting for MainActivity");
+            return;
         }
-        return domains;
+        Intent vpnIntent = new Intent(this, DnsVpnService.class);
+        ContextCompat.startForegroundService(this, vpnIntent);
+        log("DnsVpnService started");
     }
 
     private String loadConfig() {
