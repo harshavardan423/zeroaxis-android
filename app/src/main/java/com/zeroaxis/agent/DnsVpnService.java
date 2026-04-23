@@ -147,10 +147,15 @@ public class DnsVpnService extends VpnService {
                     // Check if domain is blocked
                     if (isDomainBlocked(cleanDomain)) {
                         Log.d(TAG, "Blocked DNS: " + cleanDomain);
-                        // Write NXDOMAIN response back to TUN
-                        byte[] nxdomain = buildNxDomainResponse(packet.array(), len);
-                        if (nxdomain != null) {
-                            out.write(nxdomain);
+                        int ipVersion = (packet.array()[0] >> 4) & 0xF;
+                        if (ipVersion == 4) {
+                            byte[] nxdomain = buildNxDomainResponse(packet.array(), len);
+                            if (nxdomain != null) {
+                                out.write(nxdomain);
+                            }
+                        } else if (ipVersion == 6) {
+                            // For IPv6, just drop the packet (no response) - effectively blocks
+                            // No need to write anything back
                         }
                         maybeFlushDnsLog();
                         continue;
@@ -202,19 +207,40 @@ public class DnsVpnService extends VpnService {
     // ── DNS packet parsing ────────────────────────────────────────────────────
 
     private boolean isUdpDns(byte[] pkt, int len) {
-        if (len < 28) return false;
         int ipVersion = (pkt[0] >> 4) & 0xF;
-        if (ipVersion != 4) return false;
-        int protocol = pkt[9] & 0xFF;  // 17 = UDP
-        if (protocol != 17) return false;
-        int ipHeaderLen = (pkt[0] & 0x0F) * 4;
-        if (len < ipHeaderLen + 8) return false;
-        int destPort = ((pkt[ipHeaderLen + 2] & 0xFF) << 8) | (pkt[ipHeaderLen + 3] & 0xFF);
-        return destPort == DNS_PORT;
+        if (ipVersion == 4) {
+            // IPv4
+            if (len < 28) return false;
+            int protocol = pkt[9] & 0xFF;
+            if (protocol != 17) return false;
+            int ipHeaderLen = (pkt[0] & 0x0F) * 4;
+            if (len < ipHeaderLen + 8) return false;
+            int destPort = ((pkt[ipHeaderLen + 2] & 0xFF) << 8) | (pkt[ipHeaderLen + 3] & 0xFF);
+            return destPort == DNS_PORT;
+        } else if (ipVersion == 6) {
+            // IPv6: header is 40 bytes, next header field at byte 6
+            if (len < 48) return false; // 40 byte IPv6 header + at least 8 bytes UDP
+            int nextHeader = pkt[6] & 0xFF; // next header (protocol)
+            if (nextHeader != 17) return false; // UDP
+            // IPv6 has no header length field, fixed 40 bytes
+            int ipHeaderLen = 40;
+            if (len < ipHeaderLen + 8) return false;
+            int destPort = ((pkt[ipHeaderLen + 2] & 0xFF) << 8) | (pkt[ipHeaderLen + 3] & 0xFF);
+            return destPort == DNS_PORT;
+        }
+        return false;
     }
 
     private byte[] extractDnsPayload(byte[] pkt, int len) {
-        int ipHeaderLen = (pkt[0] & 0x0F) * 4;
+        int ipVersion = (pkt[0] >> 4) & 0xF;
+        int ipHeaderLen;
+        if (ipVersion == 4) {
+            ipHeaderLen = (pkt[0] & 0x0F) * 4;
+        } else if (ipVersion == 6) {
+            ipHeaderLen = 40;
+        } else {
+            return null;
+        }
         int udpHeaderLen = 8;
         int dnsStart = ipHeaderLen + udpHeaderLen;
         if (len < dnsStart + 12) return null;
@@ -226,7 +252,15 @@ public class DnsVpnService extends VpnService {
 
     private String extractDomain(byte[] pkt, int len) {
         try {
-            int ipHeaderLen = (pkt[0] & 0x0F) * 4;
+            int ipVersion = (pkt[0] >> 4) & 0xF;
+            int ipHeaderLen;
+            if (ipVersion == 4) {
+                ipHeaderLen = (pkt[0] & 0x0F) * 4;
+            } else if (ipVersion == 6) {
+                ipHeaderLen = 40; // IPv6 fixed header length
+            } else {
+                return null;
+            }
             int dnsStart = ipHeaderLen + 8; // skip UDP header
             if (len < dnsStart + 12) return null;
             // DNS questions start at byte 12 of the DNS header
