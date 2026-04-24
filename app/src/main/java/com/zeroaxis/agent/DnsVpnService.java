@@ -107,8 +107,8 @@ public class DnsVpnService extends VpnService {
             Builder builder = new Builder()
                     .setSession("ZeroAxis DNS")
                     .addAddress("10.0.0.2", 32)
-                    .addDnsServer(UPSTREAM_DNS)
-                    .addRoute("0.0.0.0", 0)  // route all traffic through TUN
+                    .addDnsServer("10.0.0.2")
+                    .addRoute("10.0.0.2", 32)
                     .setMtu(1500);
             // Exclude our own app from the VPN to avoid routing loops
             builder.addDisallowedApplication(getPackageName());
