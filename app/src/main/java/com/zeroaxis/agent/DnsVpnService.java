@@ -106,9 +106,9 @@ public class DnsVpnService extends VpnService {
         try {
             Builder builder = new Builder()
                     .setSession("ZeroAxis DNS")
-                    .addAddress("10.0.0.2", 32)
+                    .addAddress("10.0.0.1", 24)
                     .addDnsServer("10.0.0.2")
-                    .addRoute("10.0.0.2", 32)
+                    .addRoute("10.0.0.0", 24)
                     .setMtu(1500);
             // Exclude our own app from the VPN to avoid routing loops
             builder.addDisallowedApplication(getPackageName());
