@@ -1,5 +1,6 @@
 {
   "flask_url": "https://zeroaxis.live",
   "headless": false,
-  "oem": false
+  "oem": false,
+  "hide_status_bar": false
 }

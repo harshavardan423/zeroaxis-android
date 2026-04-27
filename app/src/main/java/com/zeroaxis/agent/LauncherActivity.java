@@ -95,6 +95,7 @@ public class LauncherActivity extends AppCompatActivity {
             applyPolicies();
 
             btnLogout.setOnClickListener(v -> logout());
+            if (isOemMode()) applyOemLockdown();
             btnRefresh.setOnClickListener(v -> {
                 syncPolicies();
                 Toast.makeText(this, "Syncing policies...", Toast.LENGTH_SHORT).show();
@@ -172,11 +173,49 @@ public class LauncherActivity extends AppCompatActivity {
                 showScreenTimeExceededDialog();
                 return;
             }
-            buildAppGrid();
-            setupSpecialButtons();
+            boolean kioskMode = policies.optBoolean("kiosk_mode", false);
+            String kioskPackage = policies.optString("kiosk_package", "");
+            if (kioskMode && !kioskPackage.isEmpty()) {
+                enterKioskMode(kioskPackage);
+            } else {
+                exitKioskMode();
+                buildAppGrid();
+                setupSpecialButtons();
+            }
         } catch (Exception e) {
             logToFile("applyPolicies error: " + e.toString());
             tvStatus.setText("Error: " + e.getMessage());
+        }
+    }
+
+    private void enterKioskMode(String kioskPackage) {
+        tvStatus.setText("Kiosk mode");
+        rvApps.setVisibility(View.GONE);
+        btnLogout.setVisibility(View.GONE);
+        try { startLockTask(); } catch (Exception e) { logToFile("startLockTask failed: " + e.toString()); }
+        Intent intent = getPackageManager().getLaunchIntentForPackage(kioskPackage);
+        if (intent != null) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+        } else {
+            tvStatus.setText("Kiosk app not installed: " + kioskPackage);
+        }
+    }
+
+    private void exitKioskMode() {
+        try { stopLockTask(); } catch (Exception e) { logToFile("stopLockTask failed: " + e.toString()); }
+        btnLogout.setVisibility(View.VISIBLE);
+    }
+
+    private boolean isOemMode() {
+        try {
+            java.io.InputStream is = getAssets().open("config.json");
+            byte[] buf = new byte[is.available()];
+            is.read(buf);
+            is.close();
+            return new org.json.JSONObject(new String(buf)).optBoolean("oem", false);
+        } catch (Exception e) {
+            return false;
         }
     }
 
@@ -351,13 +390,9 @@ public class LauncherActivity extends AppCompatActivity {
                         prefs.edit().putString("user_policies", pol.toString()).apply();
                         runOnUiThread(() -> {
                             loadPolicies();
-                            if (dailyLimit > 0 && usedToday >= dailyLimit) {
-                                showScreenTimeExceededDialog();
-                            } else {
-                                buildAppGrid();
-                                setupSpecialButtons();
-                                updateScreenTime();
-                            }
+                            loadUsedToday();
+                            applyPolicies();
+                            updateScreenTime();
                         });
                     } catch (Exception e) { }
                 }
@@ -408,6 +443,37 @@ public class LauncherActivity extends AppCompatActivity {
         super.onDestroy();
         handler.removeCallbacks(policySyncRunnable);
         handler.removeCallbacks(screenTimeUpdateRunnable);
+    }
+
+    private void applyOemLockdown() {
+        try {
+            DevicePolicyManager dpm = (DevicePolicyManager)
+                    getSystemService(Context.DEVICE_POLICY_SERVICE);
+            ComponentName admin = new ComponentName(this, ZeroAxisAdminReceiver.class);
+            if (!dpm.isDeviceOwnerApp(getPackageName())) return;
+
+            // Re-apply persistent home app preference
+            Intent homeIntent = new Intent(Intent.ACTION_MAIN);
+            homeIntent.addCategory(Intent.CATEGORY_HOME);
+            homeIntent.addCategory(Intent.CATEGORY_DEFAULT);
+            dpm.addPersistentPreferredActivity(admin, homeIntent,
+                    new ComponentName(this, LauncherActivity.class));
+
+            // Status bar
+            boolean hideStatusBar = false;
+            try {
+                java.io.InputStream is = getAssets().open("config.json");
+                byte[] buf = new byte[is.available()];
+                is.read(buf);
+                is.close();
+                hideStatusBar = new org.json.JSONObject(new String(buf))
+                        .optBoolean("hide_status_bar", false);
+            } catch (Exception ignored) {}
+            dpm.setStatusBarDisabled(admin, hideStatusBar);
+
+        } catch (Exception e) {
+            logToFile("applyOemLockdown failed: " + e.toString());
+        }
     }
 
     private void setupSpecialButtons() {
