@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.widget.Toast;
 import android.content.IntentFilter;
+import android.os.UserManager;
 
 public class ZeroAxisAdminReceiver extends DeviceAdminReceiver {
 
@@ -46,7 +47,7 @@ public class ZeroAxisAdminReceiver extends DeviceAdminReceiver {
 
             // Prevent user from changing default home app
             dpm.setUserRestriction(admin,
-                    android.os.UserManager.DISALLOW_MODIFY_ACCOUNTS);
+                    UserManager.DISALLOW_MODIFY_ACCOUNTS, true);
 
             // Block Settings from being accessible
             dpm.setApplicationHidden(admin,
@@ -54,17 +55,17 @@ public class ZeroAxisAdminReceiver extends DeviceAdminReceiver {
 
             // Prevent installing/uninstalling apps
             dpm.setUserRestriction(admin,
-                    android.os.UserManager.DISALLOW_INSTALL_APPS);
+                    UserManager.DISALLOW_INSTALL_APPS, true);
             dpm.setUserRestriction(admin,
-                    android.os.UserManager.DISALLOW_UNINSTALL_APPS);
+                    UserManager.DISALLOW_UNINSTALL_APPS, true);
 
             // Prevent factory reset by user
             dpm.setUserRestriction(admin,
-                    android.os.UserManager.DISALLOW_FACTORY_RESET);
+                    UserManager.DISALLOW_FACTORY_RESET, true);
 
             // Prevent adding new users
             dpm.setUserRestriction(admin,
-                    android.os.UserManager.DISALLOW_ADD_USER);
+                    UserManager.DISALLOW_ADD_USER, true);
 
             // Lock status bar based on config
             if (isHideStatusBar(context)) {
@@ -72,8 +73,7 @@ public class ZeroAxisAdminReceiver extends DeviceAdminReceiver {
             } else {
                 // Just disable notifications/quick settings pull down
                 dpm.setKeyguardDisabledFeatures(admin,
-                        DevicePolicyManager.KEYGUARD_DISABLE_TRUST_AGENTS |
-                        DevicePolicyManager.KEYGUARD_DISABLE_NOTIFICATION_ICONS);
+                        DevicePolicyManager.KEYGUARD_DISABLE_TRUST_AGENTS);
             }
 
         } catch (Exception e) {

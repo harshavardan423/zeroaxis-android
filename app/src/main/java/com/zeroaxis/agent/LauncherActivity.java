@@ -39,6 +39,8 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import android.content.ComponentName;
 import android.content.IntentFilter;
+import android.app.admin.DevicePolicyManager;
+import android.content.ComponentName;
 
 public class LauncherActivity extends AppCompatActivity {
 
@@ -450,7 +452,7 @@ public class LauncherActivity extends AppCompatActivity {
     private void applyOemLockdown() {
         try {
             DevicePolicyManager dpm = (DevicePolicyManager)
-                    getSystemService(Context.DEVICE_POLICY_SERVICE);
+                    getSystemService(android.content.Context.DEVICE_POLICY_SERVICE);
             ComponentName admin = new ComponentName(this, ZeroAxisAdminReceiver.class);
             if (!dpm.isDeviceOwnerApp(getPackageName())) return;
 
