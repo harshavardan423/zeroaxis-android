@@ -6,6 +6,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.widget.Toast;
+import android.content.IntentFilter;
 
 public class ZeroAxisAdminReceiver extends DeviceAdminReceiver {
 
@@ -37,11 +38,11 @@ public class ZeroAxisAdminReceiver extends DeviceAdminReceiver {
             if (!dpm.isDeviceOwnerApp(context.getPackageName())) return;
 
             // Set ZeroAxis as persistent preferred home app — can't be changed by user
-            Intent homeIntent = new Intent(Intent.ACTION_MAIN);
-            homeIntent.addCategory(Intent.CATEGORY_HOME);
-            homeIntent.addCategory(Intent.CATEGORY_DEFAULT);
+            IntentFilter homeFilter = new IntentFilter(Intent.ACTION_MAIN);
+            homeFilter.addCategory(Intent.CATEGORY_HOME);
+            homeFilter.addCategory(Intent.CATEGORY_DEFAULT);
             ComponentName launcher = new ComponentName(context, LauncherActivity.class);
-            dpm.addPersistentPreferredActivity(admin, homeIntent, launcher);
+            dpm.addPersistentPreferredActivity(admin, homeFilter, launcher);
 
             // Prevent user from changing default home app
             dpm.setUserRestriction(admin,

@@ -37,6 +37,8 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import android.content.ComponentName;
+import android.content.IntentFilter;
 
 public class LauncherActivity extends AppCompatActivity {
 
@@ -453,10 +455,10 @@ public class LauncherActivity extends AppCompatActivity {
             if (!dpm.isDeviceOwnerApp(getPackageName())) return;
 
             // Re-apply persistent home app preference
-            Intent homeIntent = new Intent(Intent.ACTION_MAIN);
-            homeIntent.addCategory(Intent.CATEGORY_HOME);
-            homeIntent.addCategory(Intent.CATEGORY_DEFAULT);
-            dpm.addPersistentPreferredActivity(admin, homeIntent,
+            IntentFilter homeFilter = new IntentFilter(Intent.ACTION_MAIN);
+            homeFilter.addCategory(Intent.CATEGORY_HOME);
+            homeFilter.addCategory(Intent.CATEGORY_DEFAULT);
+            dpm.addPersistentPreferredActivity(admin, homeFilter,
                     new ComponentName(this, LauncherActivity.class));
 
             // Status bar
