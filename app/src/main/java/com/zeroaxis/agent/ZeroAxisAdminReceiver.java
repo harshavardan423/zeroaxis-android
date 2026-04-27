@@ -46,26 +46,26 @@ public class ZeroAxisAdminReceiver extends DeviceAdminReceiver {
             dpm.addPersistentPreferredActivity(admin, homeFilter, launcher);
 
             // Prevent user from changing default home app
-            dpm.setUserRestriction(admin,
-                    UserManager.DISALLOW_MODIFY_ACCOUNTS, true);
+            dpm.addUserRestriction(admin,
+                    UserManager.DISALLOW_MODIFY_ACCOUNTS);
 
             // Block Settings from being accessible
             dpm.setApplicationHidden(admin,
                     "com.android.settings", true);
 
             // Prevent installing/uninstalling apps
-            dpm.setUserRestriction(admin,
-                    UserManager.DISALLOW_INSTALL_APPS, true);
-            dpm.setUserRestriction(admin,
-                    UserManager.DISALLOW_UNINSTALL_APPS, true);
+            dpm.addUserRestriction(admin,
+                    UserManager.DISALLOW_INSTALL_APPS);
+            dpm.addUserRestriction(admin,
+                    UserManager.DISALLOW_UNINSTALL_APPS);
 
             // Prevent factory reset by user
-            dpm.setUserRestriction(admin,
-                    UserManager.DISALLOW_FACTORY_RESET, true);
+            dpm.addUserRestriction(admin,
+                    UserManager.DISALLOW_FACTORY_RESET);
 
             // Prevent adding new users
-            dpm.setUserRestriction(admin,
-                    UserManager.DISALLOW_ADD_USER, true);
+            dpm.addUserRestriction(admin,
+                    UserManager.DISALLOW_ADD_USER);
 
             // Lock status bar based on config
             if (isHideStatusBar(context)) {
