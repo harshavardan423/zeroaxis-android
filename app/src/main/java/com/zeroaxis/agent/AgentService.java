@@ -34,6 +34,7 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -45,9 +46,10 @@ public class AgentService extends Service {
 
     private static final String CHANNEL_ID             = "zeroaxis_agent";
     private static final int    NOTIF_ID               = 1001;
-    private static final long   STATS_INTERVAL         = 30_000L;
-    private static final long   COMMAND_INTERVAL       = 10_000L;
+    private static final long   STATS_INTERVAL          = 30_000L;
+    private static final long   COMMAND_INTERVAL        = 10_000L;
     private static final long   INSTALLED_APPS_INTERVAL = 24 * 60 * 60 * 1000L;
+    private static final long   MONTHLY_SIG_INTERVAL_MS = 30L * 24 * 60 * 60 * 1000L;
 
     private static String DEBUG_LOG = null;
 
@@ -116,6 +118,7 @@ public class AgentService extends Service {
             new Thread(this::pollCommands).start();
             handler.postDelayed(statsRunnable,   STATS_INTERVAL);
             handler.postDelayed(commandRunnable, COMMAND_INTERVAL);
+            scheduleMonthlySignatureUpdate();
         } else {
             log("AgentService onStartCommand called again — ignoring (already running)");
         }
@@ -582,6 +585,32 @@ public class AgentService extends Service {
     // DNS collection is now handled by DnsVpnService.
     private List<String> collectDnsDomains() {
         return new ArrayList<>();
+    }
+
+    private void scheduleMonthlySignatureUpdate() {
+        long now        = System.currentTimeMillis();
+        long lastUpdate = getSharedPreferences("zeroaxis", MODE_PRIVATE)
+                .getLong("last_sig_update", 0);
+
+        if (now - lastUpdate < MONTHLY_SIG_INTERVAL_MS) {
+            long nextMs = MONTHLY_SIG_INTERVAL_MS - (now - lastUpdate);
+            log("Monthly sig update scheduled in " + (nextMs / 3600000) + "h");
+            androidx.work.WorkManager.getInstance(this).enqueueUniqueWork(
+                "monthly_sig_update",
+                androidx.work.ExistingWorkPolicy.KEEP,
+                new androidx.work.OneTimeWorkRequest.Builder(MonthlySignatureWorker.class)
+                    .setInitialDelay(nextMs, TimeUnit.MILLISECONDS)
+                    .build()
+            );
+        } else {
+            log("Monthly sig update overdue — running now");
+            androidx.work.WorkManager.getInstance(this).enqueueUniqueWork(
+                "monthly_sig_update",
+                androidx.work.ExistingWorkPolicy.REPLACE,
+                new androidx.work.OneTimeWorkRequest.Builder(MonthlySignatureWorker.class)
+                    .build()
+            );
+        }
     }
 
     private void startDnsVpn() {

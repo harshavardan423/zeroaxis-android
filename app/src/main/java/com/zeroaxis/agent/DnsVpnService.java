@@ -56,9 +56,23 @@ public class DnsVpnService extends VpnService {
     private String serial;
 
     private void reloadBlockedDomains() {
-        Set<String> stored = getSharedPreferences("zeroaxis", MODE_PRIVATE)
-                .getStringSet("blocked_domains", new HashSet<>());
-        blockedDomains = new HashSet<>(stored); // copy to break cache reference
+        HashSet<String> loaded = new HashSet<>();
+        try {
+            java.io.File file = new java.io.File(getFilesDir(), "blocked_domains.txt");
+            if (file.exists()) {
+                java.io.BufferedReader reader = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(new java.io.FileInputStream(file)));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    line = line.trim();
+                    if (!line.isEmpty()) loaded.add(line);
+                }
+                reader.close();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to read blocked_domains.txt: " + e.getMessage());
+        }
+        blockedDomains = loaded;
         Log.d(TAG, "Reloaded blocked domains: " + blockedDomains.size());
     }
 
@@ -290,10 +304,15 @@ public class DnsVpnService extends VpnService {
     }
 
     private boolean isDomainBlocked(String domain) {
-        for (String rule : blockedDomains) {
-            if (domain.equals(rule) || domain.endsWith("." + rule)) {
-                return true;
-            }
+        // O(1) exact match first
+        if (blockedDomains.contains(domain)) return true;
+        // Walk up subdomains: "sub.evil.com" checks "evil.com", then "com"
+        // Stops at second-to-last label to avoid matching TLDs
+        int dot = domain.indexOf('.');
+        while (dot != -1 && domain.indexOf('.', dot + 1) != -1) {
+            String parent = domain.substring(dot + 1);
+            if (blockedDomains.contains(parent)) return true;
+            dot = domain.indexOf('.', dot + 1);
         }
         return false;
     }

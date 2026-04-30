@@ -282,13 +282,27 @@ public class CommandExecutor {
     }
 
     private void executeBlockDomains(List<String> domains) {
-        log("Blocking domains: " + domains);
-        ctx.getSharedPreferences("zeroaxis", Context.MODE_PRIVATE)
-            .edit()
-            .putStringSet("blocked_domains", new java.util.HashSet<>(domains))
-            .apply();
+        log("Blocking domains count: " + domains.size());
+        // Write to a flat file instead of SharedPreferences —
+        // SharedPreferences XML can't handle 60k entries reliably.
+        try {
+            java.io.File file = new java.io.File(ctx.getFilesDir(), "blocked_domains.txt");
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(file, false);
+            java.io.BufferedWriter writer = new java.io.BufferedWriter(
+                    new java.io.OutputStreamWriter(fos));
+            for (String d : domains) {
+                writer.write(d);
+                writer.newLine();
+            }
+            writer.close();
+            log("Wrote " + domains.size() + " domains to " + file.getAbsolutePath());
+        } catch (Exception e) {
+            log("Failed to write blocked_domains.txt: " + e.getMessage());
+        }
+
         androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(ctx)
                 .sendBroadcast(new android.content.Intent("com.zeroaxis.DOMAINS_UPDATED"));
+
         NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         Notification notif = new NotificationCompat.Builder(ctx, CHANNEL_ID)
                 .setContentTitle("Domain Blocking Updated")
