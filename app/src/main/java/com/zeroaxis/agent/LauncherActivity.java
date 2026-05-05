@@ -339,6 +339,11 @@ public class LauncherActivity extends AppCompatActivity {
             usedToday++;
             saveUsedToday();
 
+            // Push per-user screen time to server every 5 minutes (every 5 ticks)
+            if (usedToday % 5 == 0) {
+                pushUserScreenTime();
+            }
+
             int remaining = Math.max(0, dailyLimit - usedToday);
             if (dailyLimit > 0) {
                 tvScreenTime.setText(usedToday + " min / " + dailyLimit + " min (" + remaining + " left)");
@@ -440,6 +445,28 @@ public class LauncherActivity extends AppCompatActivity {
         } catch (Exception e) {
             return "https://zeroaxis.live";
         }
+    }
+
+    private void pushUserScreenTime() {
+        if (deviceSerial == null || currentUser == null) return;
+        final int minutesCopy = usedToday;
+        final String dateCopy = todayDate;
+        new Thread(() -> {
+            try {
+                org.json.JSONObject payload = new org.json.JSONObject();
+                payload.put("username", currentUser);
+                payload.put("date", dateCopy);
+                payload.put("screen_time_mins", minutesCopy);
+                okhttp3.RequestBody body = okhttp3.RequestBody.create(
+                        payload.toString(),
+                        okhttp3.MediaType.parse("application/json"));
+                okhttp3.Request req = new okhttp3.Request.Builder()
+                        .url(flaskUrl + "/api/enduser/screen_time/" + deviceSerial)
+                        .post(body)
+                        .build();
+                client.newCall(req).execute().close();
+            } catch (Exception ignored) {}
+        }).start();
     }
 
     @Override

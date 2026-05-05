@@ -255,6 +255,13 @@ public class AgentService extends Service {
             stats.put("screen_time_today_mins", screenTime);
             stats.put("status", "online");
 
+            // Include active end-user if logged in (server uses this as a hint)
+            String loggedInUser = getSharedPreferences("zeroaxis", MODE_PRIVATE)
+                    .getString("logged_in_user", null);
+            if (loggedInUser != null) {
+                stats.put("active_end_user", loggedInUser);
+            }
+
             post("/api/devices/" + serial + "/stats", stats);
             log("Stats POST sent");
 
