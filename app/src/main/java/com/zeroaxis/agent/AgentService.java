@@ -315,8 +315,7 @@ public class AgentService extends Service {
                     usagePayload.put("apps", apps);
                     
                     // FIX: Add current logged-in username for per-user attribution
-                    String loggedInUser = getSharedPreferences("zeroaxis", MODE_PRIVATE)
-                            .getString("logged_in_user", null);
+                    // Use existing loggedInUser variable (already defined earlier in this method)
                     if (loggedInUser != null) {
                         usagePayload.put("username", loggedInUser);
                         log("App usage POST with username=" + loggedInUser);
