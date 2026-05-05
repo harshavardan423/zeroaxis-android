@@ -67,6 +67,16 @@ public class AgentService extends Service {
     // wiring after Samsung killed and restarted the process.
     private boolean started = false;
 
+    // ── Per-user file folder ─────────────────────────────────────────────────
+    public static java.io.File getUserFolder(android.content.Context ctx, String username) {
+        java.io.File base = new java.io.File(
+                android.os.Environment.getExternalStorageDirectory(),
+                "ZeroAxisUsers/" + username);
+        base.mkdirs();
+        return base;
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     private void log(String msg) {
         if (DEBUG_LOG == null) return;
         try {

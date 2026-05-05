@@ -100,6 +100,23 @@ public class LauncherActivity extends AppCompatActivity {
 
             btnLogout.setOnClickListener(v -> logout());
             if (isOemMode()) applyOemLockdown();
+
+            // My Files button — opens this user's dedicated folder
+            Button btnFiles = new Button(this);
+            btnFiles.setText("📁 My Files");
+            btnFiles.setBackgroundColor(android.graphics.Color.parseColor("#5c636a"));
+            btnFiles.setTextColor(android.graphics.Color.WHITE);
+            btnFiles.setOnClickListener(v -> openUserFolder());
+            android.widget.LinearLayout.LayoutParams lp =
+                    new android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.setMargins(0, 0, 16, 0);
+            btnFiles.setLayoutParams(lp);
+            // Insert before logout button's parent row
+            android.view.ViewGroup topBar = (android.view.ViewGroup)
+                    btnLogout.getParent();
+            topBar.addView(btnFiles, topBar.indexOfChild(btnLogout));
             btnRefresh.setOnClickListener(v -> {
                 syncPolicies();
                 Toast.makeText(this, "Syncing policies...", Toast.LENGTH_SHORT).show();
@@ -433,6 +450,27 @@ public class LauncherActivity extends AppCompatActivity {
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         startActivity(intent);
         finish();
+    }
+
+    private void openUserFolder() {
+        if (currentUser == null) return;
+        java.io.File folder = AgentService.getUserFolder(this, currentUser);
+        try {
+            android.net.Uri uri = android.net.Uri.fromFile(folder);
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(uri, "resource/folder");
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+        } catch (Exception e) {
+            // Fallback: open system Files app at that path
+            try {
+                Intent intent = new Intent(android.provider.Settings.ACTION_INTERNAL_STORAGE_SETTINGS);
+                startActivity(intent);
+            } catch (Exception ignored) {}
+            android.widget.Toast.makeText(this,
+                    "Files: " + folder.getAbsolutePath(),
+                    android.widget.Toast.LENGTH_LONG).show();
+        }
     }
 
     private String loadFlaskUrl() {
