@@ -313,6 +313,15 @@ public class AgentService extends Service {
                     usagePayload.put("date", new SimpleDateFormat(
                             "yyyy-MM-dd", Locale.US).format(new Date()));
                     usagePayload.put("apps", apps);
+                    
+                    // FIX: Add current logged-in username for per-user attribution
+                    String loggedInUser = getSharedPreferences("zeroaxis", MODE_PRIVATE)
+                            .getString("logged_in_user", null);
+                    if (loggedInUser != null) {
+                        usagePayload.put("username", loggedInUser);
+                        log("App usage POST with username=" + loggedInUser);
+                    }
+                    
                     post("/api/devices/" + serial + "/app_usage", usagePayload);
                     log("App usage POST sent, apps=" + apps.length());
                 } catch (Exception e) {
