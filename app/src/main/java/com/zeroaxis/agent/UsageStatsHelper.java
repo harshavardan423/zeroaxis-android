@@ -99,21 +99,11 @@ public class UsageStatsHelper {
         Map<String, UsageStats> statsMap = usm.queryAndAggregateUsageStats(startOfDay, now);
         PackageManager pm = context.getPackageManager();
 
-        boolean hasBaseline = !sessionBaselineMs.isEmpty();
-
         for (Map.Entry<String, UsageStats> entry : statsMap.entrySet()) {
             String pkg = entry.getKey();
-            long   totalMs  = entry.getValue().getTotalTimeInForeground();
+            long totalMs = entry.getValue().getTotalTimeInForeground();
 
-            // If a session baseline exists, subtract pre-session usage
-            long sessionMs = totalMs;
-            if (hasBaseline) {
-                long baseMs = sessionBaselineMs.containsKey(pkg)
-                        ? sessionBaselineMs.get(pkg) : 0L;
-                sessionMs = Math.max(0, totalMs - baseMs);
-            }
-
-            if (sessionMs < 60_000) continue;
+            if (totalMs < 60_000) continue;
 
             // Skip system apps EXCEPT user-updated ones (e.g. Chrome, Gmail)
             try {
@@ -131,12 +121,12 @@ public class UsageStatsHelper {
                         pm.getApplicationInfo(pkg, 0)).toString();
             } catch (Exception ignored) {}
 
-            int mins = (int) TimeUnit.MILLISECONDS.toMinutes(sessionMs);
+            int mins = (int) TimeUnit.MILLISECONDS.toMinutes(totalMs);
             result.add(new AppUsage(pkg, appName, mins));
         }
 
         Collections.sort(result, (a, b) -> b.foregroundMins - a.foregroundMins);
-        log(context, "getTodayUsage: found " + result.size() + " apps (baseline=" + hasBaseline + ")");
+        log(context, "getTodayUsage: found " + result.size() + " apps");
         return result;
     }
 

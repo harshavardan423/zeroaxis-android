@@ -523,12 +523,7 @@ public class AgentService extends Service {
                 String status = "done";
                 try {
                     executor.execute(command, payload);
-                    // Baseline tracking for per-session app usage accuracy
-                    if ("end_user_login".equals(command)) {
-                        UsageStatsHelper.recordSessionBaseline(AgentService.this);
-                    } else if ("end_user_logout".equals(command)) {
-                        UsageStatsHelper.clearSessionBaseline();
-                    }
+
                     log("Command " + command + " ok");
                 } catch (Exception e) {
                     log("Command " + command + " failed: " + e.getMessage());
@@ -550,13 +545,7 @@ public class AgentService extends Service {
         }
     }
 
-    public static void onEndUserLogin(Context context) {
-        UsageStatsHelper.recordSessionBaseline(context);
-    }
 
-    public static void onEndUserLogout() {
-        UsageStatsHelper.clearSessionBaseline();
-    }
 
     private void post(String path, JSONObject body) throws Exception {
         RequestBody rb = RequestBody.create(

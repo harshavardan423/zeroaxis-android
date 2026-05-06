@@ -98,8 +98,7 @@ public class LoginActivity extends AppCompatActivity {
                                     .putLong("policy_fetch_time", System.currentTimeMillis())
                                     .apply();
                             
-                            // Record app usage baseline for accurate per-session tracking
-                            AgentService.onEndUserLogin(LoginActivity.this);
+                            
                             
                             runOnUiThread(() -> {
                                 Intent intent = new Intent(LoginActivity.this, LauncherActivity.class);
