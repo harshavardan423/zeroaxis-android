@@ -101,16 +101,13 @@ public class UsageStatsHelper {
 
         for (Map.Entry<String, UsageStats> entry : statsMap.entrySet()) {
             String pkg = entry.getKey();
-            long totalMs = entry.getValue().getTotalTimeInForeground();
+            long   ms  = entry.getValue().getTotalTimeInForeground();
+            if (ms < 60_000) continue;
 
-            if (totalMs < 60_000) continue;
-
-            // Skip system apps EXCEPT user-updated ones (e.g. Chrome, Gmail)
+            // Skip system apps (optional – comment out to include all)
             try {
                 ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
-                boolean isSystem = (ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
-                boolean isUpdated = (ai.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
-                if (isSystem && !isUpdated) continue;
+                if ((ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0) continue;
             } catch (PackageManager.NameNotFoundException e) {
                 continue;
             }
@@ -121,7 +118,7 @@ public class UsageStatsHelper {
                         pm.getApplicationInfo(pkg, 0)).toString();
             } catch (Exception ignored) {}
 
-            int mins = (int) TimeUnit.MILLISECONDS.toMinutes(totalMs);
+            int mins = (int) TimeUnit.MILLISECONDS.toMinutes(ms);
             result.add(new AppUsage(pkg, appName, mins));
         }
 
