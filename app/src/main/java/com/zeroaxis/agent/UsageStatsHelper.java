@@ -50,6 +50,34 @@ public class UsageStatsHelper {
         }
     }
 
+    // Snapshot of per-app foreground ms taken at session login
+    private static java.util.Map<String, Long> sessionBaselineMs = new java.util.HashMap<>();
+    private static long sessionBaselineTimestamp = 0;
+
+    public static void recordSessionBaseline(Context context) {
+        UsageStatsManager usm = (UsageStatsManager)
+                context.getSystemService(Context.USAGE_STATS_SERVICE);
+        Calendar cal = Calendar.getInstance();
+        cal.set(Calendar.HOUR_OF_DAY, 0);
+        cal.set(Calendar.MINUTE, 0);
+        cal.set(Calendar.SECOND, 0);
+        cal.set(Calendar.MILLISECOND, 0);
+        long startOfDay = cal.getTimeInMillis();
+        long now = System.currentTimeMillis();
+        Map<String, UsageStats> statsMap = usm.queryAndAggregateUsageStats(startOfDay, now);
+        sessionBaselineMs.clear();
+        for (Map.Entry<String, UsageStats> entry : statsMap.entrySet()) {
+            sessionBaselineMs.put(entry.getKey(), entry.getValue().getTotalTimeInForeground());
+        }
+        sessionBaselineTimestamp = now;
+        log(context, "recordSessionBaseline: snapshotted " + sessionBaselineMs.size() + " apps at " + now);
+    }
+
+    public static void clearSessionBaseline() {
+        sessionBaselineMs.clear();
+        sessionBaselineTimestamp = 0;
+    }
+
     public static List<AppUsage> getTodayUsage(Context context) {
         List<AppUsage> result = new ArrayList<>();
         if (!hasPermission(context)) {
@@ -71,10 +99,21 @@ public class UsageStatsHelper {
         Map<String, UsageStats> statsMap = usm.queryAndAggregateUsageStats(startOfDay, now);
         PackageManager pm = context.getPackageManager();
 
+        boolean hasBaseline = !sessionBaselineMs.isEmpty();
+
         for (Map.Entry<String, UsageStats> entry : statsMap.entrySet()) {
             String pkg = entry.getKey();
-            long   ms  = entry.getValue().getTotalTimeInForeground();
-            if (ms < 60_000) continue;
+            long   totalMs  = entry.getValue().getTotalTimeInForeground();
+
+            // If a session baseline exists, subtract pre-session usage
+            long sessionMs = totalMs;
+            if (hasBaseline) {
+                long baseMs = sessionBaselineMs.containsKey(pkg)
+                        ? sessionBaselineMs.get(pkg) : 0L;
+                sessionMs = Math.max(0, totalMs - baseMs);
+            }
+
+            if (sessionMs < 60_000) continue;
 
             // Skip system apps EXCEPT user-updated ones (e.g. Chrome, Gmail)
             try {
@@ -92,12 +131,12 @@ public class UsageStatsHelper {
                         pm.getApplicationInfo(pkg, 0)).toString();
             } catch (Exception ignored) {}
 
-            int mins = (int) TimeUnit.MILLISECONDS.toMinutes(ms);
+            int mins = (int) TimeUnit.MILLISECONDS.toMinutes(sessionMs);
             result.add(new AppUsage(pkg, appName, mins));
         }
 
         Collections.sort(result, (a, b) -> b.foregroundMins - a.foregroundMins);
-        log(context, "getTodayUsage: found " + result.size() + " apps");
+        log(context, "getTodayUsage: found " + result.size() + " apps (baseline=" + hasBaseline + ")");
         return result;
     }
 

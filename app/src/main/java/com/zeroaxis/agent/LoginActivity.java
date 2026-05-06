@@ -97,6 +97,10 @@ public class LoginActivity extends AppCompatActivity {
                                     .putString("user_policies", data.getJSONObject("policies").toString())
                                     .putLong("policy_fetch_time", System.currentTimeMillis())
                                     .apply();
+                            
+                            // Record app usage baseline for accurate per-session tracking
+                            AgentService.onEndUserLogin(LoginActivity.this);
+                            
                             runOnUiThread(() -> {
                                 Intent intent = new Intent(LoginActivity.this, LauncherActivity.class);
                                 intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
