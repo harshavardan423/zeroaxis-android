@@ -129,6 +129,7 @@ public class AgentService extends Service {
             handler.postDelayed(statsRunnable,   STATS_INTERVAL);
             handler.postDelayed(commandRunnable, COMMAND_INTERVAL);
             scheduleMonthlySignatureUpdate();
+            startDnsVpn();
         } else {
             log("AgentService onStartCommand called again — ignoring (already running)");
         }
