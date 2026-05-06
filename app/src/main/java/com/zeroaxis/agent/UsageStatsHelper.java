@@ -76,10 +76,12 @@ public class UsageStatsHelper {
             long   ms  = entry.getValue().getTotalTimeInForeground();
             if (ms < 60_000) continue;
 
-            // Skip system apps (optional – comment out to include all)
+            // Skip system apps EXCEPT user-updated ones (e.g. Chrome, Gmail)
             try {
                 ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
-                if ((ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0) continue;
+                boolean isSystem = (ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+                boolean isUpdated = (ai.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
+                if (isSystem && !isUpdated) continue;
             } catch (PackageManager.NameNotFoundException e) {
                 continue;
             }
