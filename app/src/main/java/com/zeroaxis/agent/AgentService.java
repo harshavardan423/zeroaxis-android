@@ -319,25 +319,25 @@ public class AgentService extends Service {
                         usagePayload.put("username", loggedInUser);
                         // Subtract session baseline so server gets session-relative minutes only
                         java.util.Map<String, Long> baseline = UsageStatsHelper.getSessionBaselineMs();
-                        if (!baseline.isEmpty()) {
-                            JSONArray sessionApps = new JSONArray();
-                            for (UsageStatsHelper.AppUsage a : usage) {
-                                long baseMs = baseline.containsKey(a.packageName)
-                                        ? baseline.get(a.packageName) : 0L;
-                                long totalMs = (long) a.foregroundMins * 60 * 1000;
-                                long sessionMs = Math.max(0, totalMs - baseMs);
-                                int sessionMins = (int) java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(sessionMs);
-                                if (sessionMins > 0) {
-                                    JSONObject obj = new JSONObject();
-                                    obj.put("package_name", a.packageName);
-                                    obj.put("app_name", a.appName);
-                                    obj.put("foreground_mins", sessionMins);
-                                    sessionApps.put(obj);
-                                }
+                        JSONArray sessionApps = new JSONArray();
+                        for (UsageStatsHelper.AppUsage a : usage) {
+                            long baseMs = baseline.containsKey(a.packageName)
+                                    ? baseline.get(a.packageName) : 0L;
+                            long totalMs = (long) a.foregroundMins * 60 * 1000;
+                            long sessionMs = Math.max(0, totalMs - baseMs);
+                            int sessionMins = (int) java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(sessionMs);
+                            if (sessionMins > 0) {
+                                JSONObject obj = new JSONObject();
+                                obj.put("package_name", a.packageName);
+                                obj.put("app_name", a.appName);
+                                obj.put("foreground_mins", sessionMins);
+                                sessionApps.put(obj);
                             }
+                        }
+                        if (sessionApps.length() > 0) {
                             usagePayload.put("apps", sessionApps);
                         }
-                        log("App usage POST with username=" + loggedInUser);
+                        log("App usage POST with username=" + loggedInUser + " session_apps=" + sessionApps.length());
                     }
                     
                     post("/api/devices/" + serial + "/app_usage", usagePayload);
