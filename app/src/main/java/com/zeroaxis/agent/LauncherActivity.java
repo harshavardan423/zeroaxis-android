@@ -442,11 +442,11 @@ public class LauncherActivity extends AppCompatActivity {
             @Override public void onFailure(Call call, IOException e) {}
             @Override public void onResponse(Call call, Response response) throws IOException { response.close(); }
         });
+        UsageStatsHelper.clearSessionBaseline();
         getSharedPreferences("zeroaxis", MODE_PRIVATE).edit()
                 .remove("logged_in_user")
                 .remove("user_policies")
-                .apply();
-        Intent intent = new Intent(LauncherActivity.this, LoginActivity.class);
+                .apply();        Intent intent = new Intent(LauncherActivity.this, LoginActivity.class);
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         startActivity(intent);
         finish();

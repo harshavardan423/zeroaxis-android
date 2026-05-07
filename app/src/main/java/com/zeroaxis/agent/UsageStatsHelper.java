@@ -73,6 +73,10 @@ public class UsageStatsHelper {
         log(context, "recordSessionBaseline: snapshotted " + sessionBaselineMs.size() + " apps at " + now);
     }
 
+    public static java.util.Map<String, Long> getSessionBaselineMs() {
+        return sessionBaselineMs;
+    }
+
     public static void clearSessionBaseline() {
         sessionBaselineMs.clear();
         sessionBaselineTimestamp = 0;

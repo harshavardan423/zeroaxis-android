@@ -315,10 +315,28 @@ public class AgentService extends Service {
                             "yyyy-MM-dd", Locale.US).format(new Date()));
                     usagePayload.put("apps", apps);
                     
-                    // FIX: Add current logged-in username for per-user attribution
-                    // Use existing loggedInUser variable (already defined earlier in this method)
                     if (loggedInUser != null) {
                         usagePayload.put("username", loggedInUser);
+                        // Subtract session baseline so server gets session-relative minutes only
+                        java.util.Map<String, Long> baseline = UsageStatsHelper.getSessionBaselineMs();
+                        if (!baseline.isEmpty()) {
+                            JSONArray sessionApps = new JSONArray();
+                            for (UsageStatsHelper.AppUsage a : usage) {
+                                long baseMs = baseline.containsKey(a.packageName)
+                                        ? baseline.get(a.packageName) : 0L;
+                                long totalMs = (long) a.foregroundMins * 60 * 1000;
+                                long sessionMs = Math.max(0, totalMs - baseMs);
+                                int sessionMins = (int) java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(sessionMs);
+                                if (sessionMins > 0) {
+                                    JSONObject obj = new JSONObject();
+                                    obj.put("package_name", a.packageName);
+                                    obj.put("app_name", a.appName);
+                                    obj.put("foreground_mins", sessionMins);
+                                    sessionApps.put(obj);
+                                }
+                            }
+                            usagePayload.put("apps", sessionApps);
+                        }
                         log("App usage POST with username=" + loggedInUser);
                     }
                     

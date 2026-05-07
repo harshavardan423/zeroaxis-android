@@ -100,6 +100,7 @@ public class LoginActivity extends AppCompatActivity {
                             
                             
                             
+UsageStatsHelper.recordSessionBaseline(LoginActivity.this);
                             runOnUiThread(() -> {
                                 Intent intent = new Intent(LoginActivity.this, LauncherActivity.class);
                                 intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
