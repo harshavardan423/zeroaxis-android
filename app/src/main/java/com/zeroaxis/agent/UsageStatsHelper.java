@@ -108,10 +108,21 @@ public class UsageStatsHelper {
             long   ms  = entry.getValue().getTotalTimeInForeground();
             if (ms < 60_000) continue;
 
-            // Skip system apps (optional – comment out to include all)
+            // Skip system apps unless they are common browsers/productivity apps
             try {
                 ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
-                if ((ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0) continue;
+                if ((ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0) {
+                    // Allow certain useful system apps
+                    java.util.Set<String> allowedSystem = new java.util.HashSet<>(java.util.Arrays.asList(
+                        "com.android.chrome",
+                        "com.google.android.youtube",
+                        "com.google.android.gm",
+                        "com.google.android.apps.maps",
+                        "com.google.android.calculator",
+                        "com.google.android.calendar"
+                    ));
+                    if (!allowedSystem.contains(pkg)) continue;
+                }
             } catch (PackageManager.NameNotFoundException e) {
                 continue;
             }
