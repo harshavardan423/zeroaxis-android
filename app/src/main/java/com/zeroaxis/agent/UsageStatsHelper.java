@@ -12,6 +12,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.List;
 import java.io.File;
 
 public class UsageStatsHelper {
@@ -64,7 +65,22 @@ public class UsageStatsHelper {
         cal.set(Calendar.MILLISECOND, 0);
         long startOfDay = cal.getTimeInMillis();
         long now = System.currentTimeMillis();
-        Map<String, UsageStats> statsMap = usm.queryAndAggregateUsageStats(startOfDay, now);
+        List<UsageStats> dailyList = usm.queryUsageStats(
+                UsageStatsManager.INTERVAL_DAILY, startOfDay, now);
+        Map<String, UsageStats> statsMap = new java.util.HashMap<>();
+        if (dailyList != null) {
+            for (UsageStats s : dailyList) {
+                String pkg = s.getPackageName();
+                if (!statsMap.containsKey(pkg) ||
+                        s.getTotalTimeInForeground() > statsMap.get(pkg).getTotalTimeInForeground()) {
+                    statsMap.put(pkg, s);
+                }
+            }
+        }
+        if (statsMap.isEmpty()) {
+            Map<String, UsageStats> fallback = usm.queryAndAggregateUsageStats(startOfDay, now);
+            if (fallback != null) statsMap.putAll(fallback);
+        }
         sessionBaselineMs.clear();
         for (Map.Entry<String, UsageStats> entry : statsMap.entrySet()) {
             sessionBaselineMs.put(entry.getKey(), entry.getValue().getTotalTimeInForeground());
@@ -100,7 +116,25 @@ public class UsageStatsHelper {
         long startOfDay = cal.getTimeInMillis();
         long now        = System.currentTimeMillis();
 
-        Map<String, UsageStats> statsMap = usm.queryAndAggregateUsageStats(startOfDay, now);
+        // Use INTERVAL_DAILY for accurate today-only totals (matches Digital Wellbeing)
+        // queryAndAggregateUsageStats can bleed in historical data on some OEMs
+        List<UsageStats> dailyList = usm.queryUsageStats(
+                UsageStatsManager.INTERVAL_DAILY, startOfDay, now);
+        Map<String, UsageStats> statsMap = new java.util.HashMap<>();
+        if (dailyList != null) {
+            for (UsageStats s : dailyList) {
+                String pkg = s.getPackageName();
+                if (!statsMap.containsKey(pkg) ||
+                        s.getTotalTimeInForeground() > statsMap.get(pkg).getTotalTimeInForeground()) {
+                    statsMap.put(pkg, s);
+                }
+            }
+        }
+        // Fallback to aggregate if daily query returned nothing
+        if (statsMap.isEmpty()) {
+            Map<String, UsageStats> fallback = usm.queryAndAggregateUsageStats(startOfDay, now);
+            if (fallback != null) statsMap.putAll(fallback);
+        }
         PackageManager pm = context.getPackageManager();
 
         for (Map.Entry<String, UsageStats> entry : statsMap.entrySet()) {
