@@ -454,23 +454,9 @@ public class LauncherActivity extends AppCompatActivity {
 
     private void openUserFolder() {
         if (currentUser == null) return;
-        java.io.File folder = AgentService.getUserFolder(this, currentUser);
-        try {
-            android.net.Uri uri = android.net.Uri.fromFile(folder);
-            Intent intent = new Intent(Intent.ACTION_VIEW);
-            intent.setDataAndType(uri, "resource/folder");
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(intent);
-        } catch (Exception e) {
-            // Fallback: open system Files app at that path
-            try {
-                Intent intent = new Intent(android.provider.Settings.ACTION_INTERNAL_STORAGE_SETTINGS);
-                startActivity(intent);
-            } catch (Exception ignored) {}
-            android.widget.Toast.makeText(this,
-                    "Files: " + folder.getAbsolutePath(),
-                    android.widget.Toast.LENGTH_LONG).show();
-        }
+        Intent intent = new Intent(this, FileManagerActivity.class);
+        intent.putExtra("username", currentUser);
+        startActivity(intent);
     }
 
     private String loadFlaskUrl() {
