@@ -78,8 +78,7 @@ public class FileManagerActivity extends AppCompatActivity {
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
 
         btnUpFolder = new ImageButton(this);
-        btnUpFolder.setText("←");  // fallback text; works without drawable
-        // Use a back arrow via text since we can't guarantee drawable availability
+        // Use a TextView for the back arrow since we can't guarantee drawable availability
         TextView btnUpText = new TextView(this);
         btnUpText.setText("←");
         btnUpText.setTextColor(COLOR_WHITE);
@@ -615,6 +614,6 @@ public class FileManagerActivity extends AppCompatActivity {
         if (bytes < 1024 * 1024)
             return String.format(Locale.US, "%.1f KB", bytes / 1024.0);
         return String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024));
-        
+
     }
 }
