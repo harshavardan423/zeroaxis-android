@@ -5,13 +5,14 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.InputType;
-import android.view.LayoutInflater;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
+import androidx.recyclerview.widget.DividerItemDecoration;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -21,112 +22,174 @@ import java.util.*;
 
 public class FileManagerActivity extends AppCompatActivity {
 
+    // ── Colors matching the app theme ────────────────────────────────────────
+    private static final int COLOR_BG          = 0xFFF5F7FA;  // @color/background
+    private static final int COLOR_PRIMARY     = 0xFF2E86AB;  // @color/primary
+    private static final int COLOR_WHITE       = 0xFFFFFFFF;
+    private static final int COLOR_TEXT_MAIN   = 0xFF212529;
+    private static final int COLOR_TEXT_SEC    = 0xFF6C757D;  // @color/text_secondary
+    private static final int COLOR_DIVIDER     = 0xFFDEE2E6;  // @color/spinner_border
+    private static final int COLOR_RED         = 0xFFD32F2F;
+    private static final int COLOR_GREEN       = 0xFF28A745;
+    private static final int COLOR_SURFACE     = 0xFFFFFFFF;
+    private static final int COLOR_TOOLBAR     = 0xFF2E86AB;
+
     private RecyclerView rvFiles;
-    private TextView tvPath, tvEmpty;
-    private Button btnBack, btnNewFolder, btnNewFile, btnUpFolder;
+    private TextView tvPath, tvEmpty, tvTitle;
+    private ImageButton btnUpFolder;
     private String username;
     private File currentDir;
     private File rootDir;
     private FileAdapter adapter;
-    private List<File> fileList = new ArrayList<>();
+    private final List<File> fileList = new ArrayList<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Build layout programmatically (no XML needed)
+        username = getIntent().getStringExtra("username");
+
+        // ── Root dir: use app-scoped external storage (no runtime permission needed) ──
+        // AgentService.getUserFolder uses getExternalStorageDirectory() which needs
+        // MANAGE_EXTERNAL_STORAGE at runtime on Android 11+. We override here with
+        // getExternalFilesDir which is always accessible to this app.
+        File appExternal = getExternalFilesDir(null);
+        if (appExternal == null) appExternal = getFilesDir();
+        rootDir = new File(appExternal, "users/" + username);
+        if (!rootDir.exists()) rootDir.mkdirs();
+        currentDir = rootDir;
+
+        buildUI();
+        loadDirectory(currentDir);
+    }
+
+    // ── UI construction (matches app light theme, no extra XML needed) ────────
+    private void buildUI() {
+        // Root
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFF1a1a2e);
-        root.setPadding(0, 48, 0, 0);
+        root.setBackgroundColor(COLOR_BG);
 
-        // Top bar
-        LinearLayout topBar = new LinearLayout(this);
-        topBar.setOrientation(LinearLayout.HORIZONTAL);
-        topBar.setPadding(16, 8, 16, 8);
-        topBar.setBackgroundColor(0xFF16213e);
+        // ── Toolbar ──────────────────────────────────────────────────────────
+        LinearLayout toolbar = new LinearLayout(this);
+        toolbar.setOrientation(LinearLayout.HORIZONTAL);
+        toolbar.setBackgroundColor(COLOR_TOOLBAR);
+        toolbar.setPadding(dp(8), dp(12), dp(8), dp(12));
+        toolbar.setGravity(Gravity.CENTER_VERTICAL);
 
-        btnUpFolder = new Button(this);
-        btnUpFolder.setText("↑ Up");
-        btnUpFolder.setBackgroundColor(0xFF0f3460);
-        btnUpFolder.setTextColor(0xFFFFFFFF);
-        btnUpFolder.setPadding(24, 8, 24, 8);
+        btnUpFolder = new ImageButton(this);
+        btnUpFolder.setText("←");  // fallback text; works without drawable
+        // Use a back arrow via text since we can't guarantee drawable availability
+        TextView btnUpText = new TextView(this);
+        btnUpText.setText("←");
+        btnUpText.setTextColor(COLOR_WHITE);
+        btnUpText.setTextSize(22);
+        btnUpText.setPadding(dp(4), 0, dp(12), 0);
+        btnUpText.setId(View.generateViewId());
+        btnUpText.setTag("btnUp");
+
+        tvTitle = new TextView(this);
+        tvTitle.setTextColor(COLOR_WHITE);
+        tvTitle.setTextSize(18);
+        tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvTitle.setText("📁 My Files");
+        tvTitle.setLayoutParams(new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        toolbar.addView(btnUpText);
+        toolbar.addView(tvTitle);
+        root.addView(toolbar, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        // ── Path bar ─────────────────────────────────────────────────────────
+        LinearLayout pathBar = new LinearLayout(this);
+        pathBar.setBackgroundColor(0xFFE9ECEF);
+        pathBar.setPadding(dp(16), dp(6), dp(16), dp(6));
+        pathBar.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView pathLabel = new TextView(this);
+        pathLabel.setText("Location: ");
+        pathLabel.setTextColor(COLOR_TEXT_SEC);
+        pathLabel.setTextSize(12);
 
         tvPath = new TextView(this);
-        tvPath.setTextColor(0xFFaaaaaa);
+        tvPath.setTextColor(COLOR_PRIMARY);
         tvPath.setTextSize(12);
-        tvPath.setPadding(16, 0, 0, 0);
-        tvPath.setEllipsize(android.text.TextUtils.TruncateAt.START);
+        tvPath.setTypeface(null, android.graphics.Typeface.BOLD);
         tvPath.setSingleLine(true);
-        LinearLayout.LayoutParams pathParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        tvPath.setLayoutParams(pathParams);
+        tvPath.setEllipsize(android.text.TextUtils.TruncateAt.START);
+        tvPath.setLayoutParams(new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
-        topBar.addView(btnUpFolder);
-        topBar.addView(tvPath);
-        root.addView(topBar);
+        pathBar.addView(pathLabel);
+        pathBar.addView(tvPath);
+        root.addView(pathBar, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        // Action buttons
+        // ── Action buttons ────────────────────────────────────────────────────
         LinearLayout actionBar = new LinearLayout(this);
         actionBar.setOrientation(LinearLayout.HORIZONTAL);
-        actionBar.setPadding(16, 8, 16, 8);
-        actionBar.setBackgroundColor(0xFF0d0d1a);
+        actionBar.setBackgroundColor(COLOR_SURFACE);
+        actionBar.setPadding(dp(12), dp(8), dp(12), dp(8));
 
-        btnNewFolder = new Button(this);
-        btnNewFolder.setText("+ Folder");
-        btnNewFolder.setBackgroundColor(0xFF533483);
-        btnNewFolder.setTextColor(0xFFFFFFFF);
-        LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        btnParams.setMargins(0, 0, 8, 0);
-        btnNewFolder.setLayoutParams(btnParams);
+        Button btnNewFolder = makeButton("+ New Folder", COLOR_PRIMARY);
+        LinearLayout.LayoutParams bp1 = new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        bp1.setMargins(0, 0, dp(6), 0);
+        btnNewFolder.setLayoutParams(bp1);
 
-        btnNewFile = new Button(this);
-        btnNewFile.setText("+ File");
-        btnNewFile.setBackgroundColor(0xFF2d6a4f);
-        btnNewFile.setTextColor(0xFFFFFFFF);
-        LinearLayout.LayoutParams btnParams2 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        btnParams2.setMargins(8, 0, 0, 0);
-        btnNewFile.setLayoutParams(btnParams2);
+        Button btnNewFile = makeButton("+ New File", COLOR_GREEN);
+        LinearLayout.LayoutParams bp2 = new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        bp2.setMargins(dp(6), 0, 0, 0);
+        btnNewFile.setLayoutParams(bp2);
 
         actionBar.addView(btnNewFolder);
         actionBar.addView(btnNewFile);
-        root.addView(actionBar);
+        root.addView(actionBar, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        // Empty state
+        // ── Divider ───────────────────────────────────────────────────────────
+        View divider = new View(this);
+        divider.setBackgroundColor(COLOR_DIVIDER);
+        root.addView(divider, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 1));
+
+        // ── Empty state ───────────────────────────────────────────────────────
         tvEmpty = new TextView(this);
-        tvEmpty.setText("This folder is empty");
-        tvEmpty.setTextColor(0xFF666666);
-        tvEmpty.setTextSize(16);
-        tvEmpty.setGravity(android.view.Gravity.CENTER);
-        tvEmpty.setPadding(0, 80, 0, 0);
+        tvEmpty.setText("This folder is empty.\nTap '+ New Folder' or '+ New File' to get started.");
+        tvEmpty.setTextColor(COLOR_TEXT_SEC);
+        tvEmpty.setTextSize(15);
+        tvEmpty.setGravity(Gravity.CENTER);
+        tvEmpty.setPadding(dp(32), dp(64), dp(32), dp(0));
         tvEmpty.setVisibility(View.GONE);
-        root.addView(tvEmpty);
+        root.addView(tvEmpty, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        // File list
+        // ── File list ─────────────────────────────────────────────────────────
         rvFiles = new RecyclerView(this);
         rvFiles.setLayoutManager(new LinearLayoutManager(this));
-        LinearLayout.LayoutParams rvParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
-        rvFiles.setLayoutParams(rvParams);
-        root.addView(rvFiles);
+        rvFiles.addItemDecoration(new DividerItemDecoration(this, DividerItemDecoration.VERTICAL));
+        rvFiles.setBackgroundColor(COLOR_SURFACE);
+        root.addView(rvFiles, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
         setContentView(root);
-
-        username = getIntent().getStringExtra("username");
-        rootDir = AgentService.getUserFolder(this, username);
-        if (!rootDir.exists()) rootDir.mkdirs();
-        currentDir = rootDir;
 
         adapter = new FileAdapter(fileList);
         rvFiles.setAdapter(adapter);
 
-        btnUpFolder.setOnClickListener(v -> navigateUp());
-        btnNewFolder.setOnClickListener(v -> promptCreateFolder());
-        btnNewFile.setOnClickListener(v -> promptCreateFile());
-
-        setTitle("📁 " + username + "'s Files");
-        loadDirectory(currentDir);
+        // Listeners
+        btnUpText.setOnClickListener(v -> navigateUp());
+        btnNewFolder.setOnClickListener(v -> promptCreate(true));
+        btnNewFile.setOnClickListener(v -> promptCreate(false));
     }
 
+    // ── Directory loading ─────────────────────────────────────────────────────
     private void loadDirectory(File dir) {
         currentDir = dir;
         fileList.clear();
@@ -138,20 +201,28 @@ public class FileManagerActivity extends AppCompatActivity {
                 if (!a.isDirectory() && b.isDirectory()) return 1;
                 return a.getName().compareToIgnoreCase(b.getName());
             });
-            Collections.addAll(fileList, files);
+            fileList.addAll(Arrays.asList(files));
         }
 
         adapter.notifyDataSetChanged();
 
-        // Path relative to root
+        // Update path display
         String rel = currentDir.getAbsolutePath().replace(rootDir.getAbsolutePath(), "");
         tvPath.setText(rel.isEmpty() ? "/" : rel);
 
+        // Update title
+        boolean atRoot = currentDir.getAbsolutePath().equals(rootDir.getAbsolutePath());
+        tvTitle.setText(atRoot ? "📁 " + username + "'s Files" : "📁 " + currentDir.getName());
+
+        // Up button enabled only when not at root
+        View btnUp = getWindow().getDecorView().findViewWithTag("btnUp");
+        if (btnUp != null) {
+            btnUp.setAlpha(atRoot ? 0.3f : 1.0f);
+            btnUp.setEnabled(!atRoot);
+        }
+
         tvEmpty.setVisibility(fileList.isEmpty() ? View.VISIBLE : View.GONE);
         rvFiles.setVisibility(fileList.isEmpty() ? View.GONE : View.VISIBLE);
-
-        // Can't go above root
-        btnUpFolder.setEnabled(!currentDir.getAbsolutePath().equals(rootDir.getAbsolutePath()));
     }
 
     private void navigateUp() {
@@ -159,182 +230,204 @@ public class FileManagerActivity extends AppCompatActivity {
         loadDirectory(currentDir.getParentFile());
     }
 
-    private void promptCreateFolder() {
-        EditText et = new EditText(this);
-        et.setHint("Folder name");
-        et.setInputType(InputType.TYPE_CLASS_TEXT);
-        new AlertDialog.Builder(this)
-                .setTitle("New Folder")
-                .setView(et)
-                .setPositiveButton("Create", (d, w) -> {
-                    String name = et.getText().toString().trim();
-                    if (!name.isEmpty()) {
-                        File f = new File(currentDir, name);
-                        if (f.mkdirs()) {
-                            loadDirectory(currentDir);
-                        } else {
-                            Toast.makeText(this, "Could not create folder", Toast.LENGTH_SHORT).show();
-                        }
-                    }
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
+    // ── Create folder or file ─────────────────────────────────────────────────
+    private void promptCreate(boolean isFolder) {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dp(20), dp(8), dp(20), dp(4));
 
-    private void promptCreateFile() {
         EditText et = new EditText(this);
-        et.setHint("File name (e.g. notes.txt)");
-        et.setInputType(InputType.TYPE_CLASS_TEXT);
+        et.setHint(isFolder ? "Folder name" : "File name (e.g. notes.txt)");
+        et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        et.setBackground(null);
+        et.setPadding(0, dp(8), 0, dp(8));
+        layout.addView(et);
+
         new AlertDialog.Builder(this)
-                .setTitle("New File")
-                .setView(et)
-                .setPositiveButton("Create", (d, w) -> {
+                .setTitle(isFolder ? "New Folder" : "New File")
+                .setView(layout)
+                .setPositiveButton(isFolder ? "Create Folder" : "Create File", (d, w) -> {
                     String name = et.getText().toString().trim();
-                    if (!name.isEmpty()) {
-                        File f = new File(currentDir, name);
+                    if (name.isEmpty()) {
+                        toast("Name cannot be empty");
+                        return;
+                    }
+                    // Sanitise: no path separators
+                    if (name.contains("/") || name.contains("\\")) {
+                        toast("Name cannot contain / or \\");
+                        return;
+                    }
+                    File target = new File(currentDir, name);
+                    boolean ok;
+                    if (isFolder) {
+                        ok = target.mkdirs();
+                    } else {
                         try {
-                            if (f.createNewFile()) {
-                                loadDirectory(currentDir);
-                            } else {
-                                Toast.makeText(this, "File already exists", Toast.LENGTH_SHORT).show();
-                            }
+                            // Ensure parent exists (it does, but be safe)
+                            ok = target.createNewFile();
                         } catch (IOException e) {
-                            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                            toast("Error: " + e.getMessage());
+                            return;
                         }
+                    }
+                    if (ok) {
+                        loadDirectory(currentDir);
+                    } else if (target.exists()) {
+                        toast((isFolder ? "Folder" : "File") + " already exists");
+                    } else {
+                        toast("Could not create " + (isFolder ? "folder" : "file") +
+                                ". Check storage permissions.");
                     }
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
+        // Auto-show keyboard
+        et.requestFocus();
     }
 
+    // ── File options menu ─────────────────────────────────────────────────────
     private void showFileOptions(File file) {
-        String[] options;
+        List<String> opts = new ArrayList<>();
         if (file.isDirectory()) {
-            options = new String[]{"Open", "Rename", "Delete"};
+            opts.add("📂  Open");
         } else {
-            options = new String[]{"Open", "Rename", "Delete", "Share"};
+            opts.add("📖  Open");
+            if (isTextFile(file)) opts.add("✏️  Edit");
+            opts.add("↗️  Share");
         }
+        opts.add("✏️  Rename");
+        opts.add("🗑  Delete");
 
         new AlertDialog.Builder(this)
                 .setTitle(file.getName())
-                .setItems(options, (d, which) -> {
-                    if (file.isDirectory()) {
-                        switch (which) {
-                            case 0: loadDirectory(file); break;
-                            case 1: promptRename(file); break;
-                            case 2: promptDelete(file); break;
-                        }
-                    } else {
-                        switch (which) {
-                            case 0: openFile(file); break;
-                            case 1: promptRename(file); break;
-                            case 2: promptDelete(file); break;
-                            case 3: shareFile(file); break;
-                        }
+                .setItems(opts.toArray(new String[0]), (d, which) -> {
+                    String choice = opts.get(which);
+                    if (choice.contains("Open")) {
+                        if (file.isDirectory()) loadDirectory(file);
+                        else openFile(file);
+                    } else if (choice.contains("Edit")) {
+                        openTextEditor(file);
+                    } else if (choice.contains("Share")) {
+                        shareFile(file);
+                    } else if (choice.contains("Rename")) {
+                        promptRename(file);
+                    } else if (choice.contains("Delete")) {
+                        promptDelete(file);
                     }
                 })
                 .show();
     }
 
     private void promptRename(File file) {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dp(20), dp(8), dp(20), dp(4));
+
         EditText et = new EditText(this);
         et.setText(file.getName());
         et.setSelectAllOnFocus(true);
+        et.setBackground(null);
+        et.setPadding(0, dp(8), 0, dp(8));
+        layout.addView(et);
+
         new AlertDialog.Builder(this)
                 .setTitle("Rename")
-                .setView(et)
+                .setView(layout)
                 .setPositiveButton("Rename", (d, w) -> {
                     String newName = et.getText().toString().trim();
-                    if (!newName.isEmpty() && !newName.equals(file.getName())) {
-                        File dest = new File(file.getParentFile(), newName);
-                        if (file.renameTo(dest)) {
-                            loadDirectory(currentDir);
-                        } else {
-                            Toast.makeText(this, "Rename failed", Toast.LENGTH_SHORT).show();
-                        }
+                    if (newName.isEmpty() || newName.equals(file.getName())) return;
+                    if (newName.contains("/") || newName.contains("\\")) {
+                        toast("Name cannot contain / or \\");
+                        return;
                     }
+                    File dest = new File(file.getParentFile(), newName);
+                    if (dest.exists()) { toast("A file with that name already exists"); return; }
+                    if (file.renameTo(dest)) loadDirectory(currentDir);
+                    else toast("Rename failed");
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
     }
 
     private void promptDelete(File file) {
+        String msg = file.isDirectory()
+                ? "Delete folder \"" + file.getName() + "\" and all its contents? This cannot be undone."
+                : "Delete \"" + file.getName() + "\"? This cannot be undone.";
         new AlertDialog.Builder(this)
-                .setTitle("Delete " + file.getName() + "?")
-                .setMessage(file.isDirectory() ? "This will delete the folder and all its contents." : "This cannot be undone.")
+                .setTitle("Delete")
+                .setMessage(msg)
                 .setPositiveButton("Delete", (d, w) -> {
-                    if (deleteRecursive(file)) {
-                        loadDirectory(currentDir);
-                    } else {
-                        Toast.makeText(this, "Delete failed", Toast.LENGTH_SHORT).show();
-                    }
+                    if (deleteRecursive(file)) loadDirectory(currentDir);
+                    else toast("Delete failed");
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
     }
 
-    private boolean deleteRecursive(File file) {
-        if (file.isDirectory()) {
-            File[] children = file.listFiles();
-            if (children != null) {
-                for (File child : children) deleteRecursive(child);
-            }
+    private boolean deleteRecursive(File f) {
+        if (f.isDirectory()) {
+            File[] children = f.listFiles();
+            if (children != null) for (File c : children) deleteRecursive(c);
         }
-        return file.delete();
+        return f.delete();
     }
 
     private void openFile(File file) {
+        if (isTextFile(file)) { openTextEditor(file); return; }
         try {
             Uri uri = FileProvider.getUriForFile(this,
                     getPackageName() + ".provider", file);
-            String mime = getMimeType(file.getName());
             Intent intent = new Intent(Intent.ACTION_VIEW);
-            intent.setDataAndType(uri, mime);
+            intent.setDataAndType(uri, getMimeType(file.getName()));
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            startActivity(Intent.createChooser(intent, "Open with"));
+            startActivity(Intent.createChooser(intent, "Open with…"));
         } catch (Exception e) {
-            // If it's a text file, show inline editor
-            if (file.getName().endsWith(".txt") || file.getName().endsWith(".md")
-                    || file.getName().endsWith(".csv") || file.getName().endsWith(".log")) {
-                openTextEditor(file);
-            } else {
-                Toast.makeText(this, "No app to open this file", Toast.LENGTH_SHORT).show();
-            }
+            toast("No app available to open this file type");
         }
     }
 
     private void openTextEditor(File file) {
         try {
             StringBuilder sb = new StringBuilder();
-            BufferedReader br = new BufferedReader(new FileReader(file));
-            String line;
-            while ((line = br.readLine()) != null) sb.append(line).append("\n");
-            br.close();
+            try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+                String line;
+                while ((line = br.readLine()) != null) sb.append(line).append("\n");
+            }
 
+            ScrollView sv = new ScrollView(this);
             EditText et = new EditText(this);
             et.setText(sb.toString());
-            et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-            et.setGravity(android.view.Gravity.TOP);
-            et.setMinLines(10);
-            et.setPadding(16, 16, 16, 16);
+            et.setInputType(InputType.TYPE_CLASS_TEXT
+                    | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                    | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+            et.setGravity(Gravity.TOP | Gravity.START);
+            et.setTextColor(COLOR_TEXT_MAIN);
+            et.setTextSize(13);
+            et.setBackgroundColor(COLOR_WHITE);
+            et.setPadding(dp(12), dp(12), dp(12), dp(12));
+            et.setMinLines(12);
+            sv.addView(et);
+
+            LinearLayout.LayoutParams svParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(320));
+            sv.setLayoutParams(svParams);
+            sv.setPadding(dp(16), dp(8), dp(16), dp(8));
 
             new AlertDialog.Builder(this)
-                    .setTitle("✏ " + file.getName())
-                    .setView(et)
+                    .setTitle("✏️  " + file.getName())
+                    .setView(sv)
                     .setPositiveButton("Save", (d, w) -> {
-                        try {
-                            FileWriter fw = new FileWriter(file, false);
+                        try (FileWriter fw = new FileWriter(file, false)) {
                             fw.write(et.getText().toString());
-                            fw.close();
-                            Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show();
+                            toast("Saved ✓");
                         } catch (IOException ex) {
-                            Toast.makeText(this, "Save failed: " + ex.getMessage(), Toast.LENGTH_SHORT).show();
+                            toast("Save failed: " + ex.getMessage());
                         }
                     })
-                    .setNegativeButton("Cancel", null)
+                    .setNegativeButton("Close", null)
                     .show();
         } catch (Exception e) {
-            Toast.makeText(this, "Could not open file", Toast.LENGTH_SHORT).show();
+            toast("Could not open file: " + e.getMessage());
         }
     }
 
@@ -346,29 +439,15 @@ public class FileManagerActivity extends AppCompatActivity {
             intent.setType(getMimeType(file.getName()));
             intent.putExtra(Intent.EXTRA_STREAM, uri);
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            startActivity(Intent.createChooser(intent, "Share"));
+            startActivity(Intent.createChooser(intent, "Share via…"));
         } catch (Exception e) {
-            Toast.makeText(this, "Share failed", Toast.LENGTH_SHORT).show();
+            toast("Share failed: " + e.getMessage());
         }
     }
 
-    private String getMimeType(String filename) {
-        if (filename.endsWith(".pdf"))  return "application/pdf";
-        if (filename.endsWith(".jpg") || filename.endsWith(".jpeg")) return "image/jpeg";
-        if (filename.endsWith(".png"))  return "image/png";
-        if (filename.endsWith(".mp4"))  return "video/mp4";
-        if (filename.endsWith(".mp3"))  return "audio/mpeg";
-        if (filename.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-        if (filename.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-        if (filename.endsWith(".txt") || filename.endsWith(".md") || filename.endsWith(".log") || filename.endsWith(".csv"))
-            return "text/plain";
-        return "*/*";
-    }
-
-    // ── Adapter ──────────────────────────────────────────────────────────────
-
+    // ── Adapter ───────────────────────────────────────────────────────────────
     class FileAdapter extends RecyclerView.Adapter<FileAdapter.VH> {
-        List<File> files;
+        final List<File> files;
         FileAdapter(List<File> files) { this.files = files; }
 
         @NonNull
@@ -376,118 +455,166 @@ public class FileManagerActivity extends AppCompatActivity {
         public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             LinearLayout row = new LinearLayout(parent.getContext());
             row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setPadding(24, 20, 24, 20);
-            row.setClickable(true);
-            row.setFocusable(true);
+            row.setBackgroundColor(COLOR_WHITE);
+            row.setPadding(dp(16), dp(14), dp(16), dp(14));
+            row.setGravity(Gravity.CENTER_VERTICAL);
 
-            // Ripple / press feedback
+            // Ripple background
             int[] attrs = {android.R.attr.selectableItemBackground};
-            android.content.res.TypedArray ta = parent.getContext().obtainStyledAttributes(attrs);
+            android.content.res.TypedArray ta =
+                    parent.getContext().obtainStyledAttributes(attrs);
             row.setBackground(ta.getDrawable(0));
             ta.recycle();
 
+            // Icon
             TextView icon = new TextView(parent.getContext());
-            icon.setTextSize(24);
-            icon.setTag("icon");
-            LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            iconParams.setMargins(0, 0, 24, 0);
-            icon.setLayoutParams(iconParams);
+            icon.setTextSize(26);
+            LinearLayout.LayoutParams iconLP =
+                    new LinearLayout.LayoutParams(dp(40), dp(40));
+            iconLP.setMargins(0, 0, dp(12), 0);
+            icon.setLayoutParams(iconLP);
+            icon.setGravity(Gravity.CENTER);
 
+            // Text block
             LinearLayout textBlock = new LinearLayout(parent.getContext());
             textBlock.setOrientation(LinearLayout.VERTICAL);
             textBlock.setLayoutParams(new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
             TextView name = new TextView(parent.getContext());
-            name.setTextColor(0xFFFFFFFF);
+            name.setTextColor(COLOR_TEXT_MAIN);
             name.setTextSize(15);
-            name.setTag("name");
+            name.setTypeface(null, android.graphics.Typeface.BOLD);
+            name.setMaxLines(1);
+            name.setEllipsize(android.text.TextUtils.TruncateAt.END);
 
             TextView meta = new TextView(parent.getContext());
-            meta.setTextColor(0xFF888888);
-            meta.setTextSize(11);
-            meta.setTag("meta");
+            meta.setTextColor(COLOR_TEXT_SEC);
+            meta.setTextSize(12);
 
             textBlock.addView(name);
             textBlock.addView(meta);
+
+            // Chevron
+            TextView chevron = new TextView(parent.getContext());
+            chevron.setText("›");
+            chevron.setTextSize(22);
+            chevron.setTextColor(COLOR_TEXT_SEC);
+            chevron.setPadding(dp(8), 0, 0, 0);
+
             row.addView(icon);
             row.addView(textBlock);
+            row.addView(chevron);
 
-            // Divider
-            LinearLayout wrapper = new LinearLayout(parent.getContext());
-            wrapper.setOrientation(LinearLayout.VERTICAL);
-            wrapper.setLayoutParams(new RecyclerView.LayoutParams(
+            RecyclerView.LayoutParams rvLP = new RecyclerView.LayoutParams(
                     RecyclerView.LayoutParams.MATCH_PARENT,
-                    RecyclerView.LayoutParams.WRAP_CONTENT));
-            wrapper.addView(row);
+                    RecyclerView.LayoutParams.WRAP_CONTENT);
+            row.setLayoutParams(rvLP);
 
-            View divider = new View(parent.getContext());
-            divider.setBackgroundColor(0x22FFFFFF);
-            divider.setLayoutParams(new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 1));
-            wrapper.addView(divider);
-
-            return new VH(wrapper, row, icon, name, meta);
+            return new VH(row, icon, name, meta);
         }
 
         @Override
         public void onBindViewHolder(@NonNull VH h, int pos) {
             File f = files.get(pos);
-            SimpleDateFormat sdf = new SimpleDateFormat("dd MMM yyyy HH:mm", Locale.getDefault());
+            SimpleDateFormat sdf =
+                    new SimpleDateFormat("dd MMM yyyy  HH:mm", Locale.getDefault());
 
-            h.icon.setText(f.isDirectory() ? "📁" : getFileEmoji(f.getName()));
+            h.icon.setText(f.isDirectory() ? "📁" : fileEmoji(f.getName()));
             h.name.setText(f.getName());
 
             if (f.isDirectory()) {
-                String[] children = f.list();
-                int count = children != null ? children.length : 0;
-                h.meta.setText(count + " item" + (count == 1 ? "" : "s"));
+                String[] ch = f.list();
+                int cnt = ch != null ? ch.length : 0;
+                h.meta.setText(cnt + " item" + (cnt == 1 ? "" : "s"));
             } else {
-                h.meta.setText(formatSize(f.length()) + "  ·  " + sdf.format(new Date(f.lastModified())));
+                h.meta.setText(fmtSize(f.length()) + "   " +
+                        sdf.format(new Date(f.lastModified())));
             }
 
             h.row.setOnClickListener(v -> {
                 if (f.isDirectory()) loadDirectory(f);
                 else showFileOptions(f);
             });
-            h.row.setOnLongClickListener(v -> {
-                showFileOptions(f);
-                return true;
-            });
+            h.row.setOnLongClickListener(v -> { showFileOptions(f); return true; });
         }
 
-        @Override
-        public int getItemCount() { return files.size(); }
+        @Override public int getItemCount() { return files.size(); }
 
         class VH extends RecyclerView.ViewHolder {
             LinearLayout row;
             TextView icon, name, meta;
-            VH(View outer, LinearLayout row, TextView icon, TextView name, TextView meta) {
-                super(outer);
-                this.row = row;
-                this.icon = icon;
-                this.name = name;
-                this.meta = meta;
+            VH(LinearLayout r, TextView ic, TextView n, TextView m) {
+                super(r);
+                row = r; icon = ic; name = n; meta = m;
             }
         }
     }
 
-    private String getFileEmoji(String name) {
-        if (name.endsWith(".pdf"))  return "📄";
-        if (name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png")) return "🖼";
-        if (name.endsWith(".mp4") || name.endsWith(".mkv") || name.endsWith(".avi"))  return "🎬";
-        if (name.endsWith(".mp3") || name.endsWith(".m4a") || name.endsWith(".wav"))  return "🎵";
-        if (name.endsWith(".txt") || name.endsWith(".md"))  return "📝";
-        if (name.endsWith(".docx") || name.endsWith(".doc")) return "📘";
-        if (name.endsWith(".xlsx") || name.endsWith(".csv")) return "📊";
-        if (name.endsWith(".zip") || name.endsWith(".rar")) return "🗜";
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    private Button makeButton(String text, int color) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setTextColor(COLOR_WHITE);
+        b.setTextSize(13);
+        b.setBackgroundColor(color);
+        b.setPadding(dp(12), dp(6), dp(12), dp(6));
+        return b;
+    }
+
+    private int dp(int dp) {
+        return Math.round(dp * getResources().getDisplayMetrics().density);
+    }
+
+    private void toast(String msg) {
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+    }
+
+    private boolean isTextFile(File f) {
+        String n = f.getName().toLowerCase();
+        return n.endsWith(".txt") || n.endsWith(".md") || n.endsWith(".csv")
+                || n.endsWith(".log") || n.endsWith(".json") || n.endsWith(".xml")
+                || n.endsWith(".html") || n.endsWith(".htm");
+    }
+
+    private String fileEmoji(String name) {
+        String n = name.toLowerCase();
+        if (n.endsWith(".pdf"))  return "📄";
+        if (n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".png")
+                || n.endsWith(".gif") || n.endsWith(".webp")) return "🖼️";
+        if (n.endsWith(".mp4") || n.endsWith(".mkv") || n.endsWith(".avi")
+                || n.endsWith(".mov")) return "🎬";
+        if (n.endsWith(".mp3") || n.endsWith(".m4a") || n.endsWith(".wav")
+                || n.endsWith(".ogg")) return "🎵";
+        if (n.endsWith(".txt") || n.endsWith(".md") || n.endsWith(".log")) return "📝";
+        if (n.endsWith(".docx") || n.endsWith(".doc")) return "📘";
+        if (n.endsWith(".xlsx") || n.endsWith(".csv")) return "📊";
+        if (n.endsWith(".zip") || n.endsWith(".rar") || n.endsWith(".7z")) return "🗜️";
+        if (n.endsWith(".json") || n.endsWith(".xml")) return "🗂️";
         return "📎";
     }
 
-    private String formatSize(long bytes) {
+    private String getMimeType(String name) {
+        String n = name.toLowerCase();
+        if (n.endsWith(".pdf"))  return "application/pdf";
+        if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
+        if (n.endsWith(".png"))  return "image/png";
+        if (n.endsWith(".gif"))  return "image/gif";
+        if (n.endsWith(".mp4"))  return "video/mp4";
+        if (n.endsWith(".mp3"))  return "audio/mpeg";
+        if (n.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if (n.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        if (n.endsWith(".zip"))  return "application/zip";
+        if (n.endsWith(".txt") || n.endsWith(".md") || n.endsWith(".log")
+                || n.endsWith(".csv") || n.endsWith(".json")) return "text/plain";
+        return "*/*";
+    }
+
+    private String fmtSize(long bytes) {
         if (bytes < 1024) return bytes + " B";
-        if (bytes < 1024 * 1024) return String.format(Locale.US, "%.1f KB", bytes / 1024.0);
+        if (bytes < 1024 * 1024)
+            return String.format(Locale.US, "%.1f KB", bytes / 1024.0);
         return String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024));
+        
     }
 }
