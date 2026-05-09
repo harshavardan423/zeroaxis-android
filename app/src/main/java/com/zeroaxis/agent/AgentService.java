@@ -302,22 +302,26 @@ public class AgentService extends Service {
 
             if (usage != null && !usage.isEmpty()) {
                 try {
-                    JSONArray apps = new JSONArray();
+                    // Build raw OS totals array — always sent for device-level tracking
+                    JSONArray rawApps = new JSONArray();
                     for (UsageStatsHelper.AppUsage a : usage) {
                         JSONObject obj = new JSONObject();
                         obj.put("package_name",    a.packageName);
                         obj.put("app_name",        a.appName);
                         obj.put("foreground_mins", a.foregroundMins);
-                        apps.put(obj);
+                        rawApps.put(obj);
                     }
-                    JSONObject usagePayload = new JSONObject();
-                    usagePayload.put("date", new SimpleDateFormat(
-                            "yyyy-MM-dd", Locale.US).format(new Date()));
-                    usagePayload.put("apps", apps);
-                    
+                    String today = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+
+                    // POST 1: raw device-level usage (no username — server stores in WindowsAppUsage)
+                    JSONObject devicePayload = new JSONObject();
+                    devicePayload.put("date", today);
+                    devicePayload.put("apps", rawApps);
+                    post("/api/devices/" + serial + "/app_usage", devicePayload);
+                    log("Device-level app usage POST sent, apps=" + rawApps.length());
+
+                    // POST 2: session-relative usage for end-user attribution (only if logged in)
                     if (loggedInUser != null) {
-                        usagePayload.put("username", loggedInUser);
-                        // Subtract session baseline so server gets session-relative minutes only
                         java.util.Map<String, Long> baseline = UsageStatsHelper.getSessionBaselineMs();
                         JSONArray sessionApps = new JSONArray();
                         for (UsageStatsHelper.AppUsage a : usage) {
@@ -335,13 +339,15 @@ public class AgentService extends Service {
                             }
                         }
                         if (sessionApps.length() > 0) {
-                            usagePayload.put("apps", sessionApps);
+                            JSONObject userPayload = new JSONObject();
+                            userPayload.put("date", today);
+                            userPayload.put("apps", sessionApps);
+                            userPayload.put("username", loggedInUser);
+                            post("/api/devices/" + serial + "/app_usage", userPayload);
+                            log("User-level app usage POST sent, username=" + loggedInUser + " session_apps=" + sessionApps.length());
                         }
-                        log("App usage POST with username=" + loggedInUser + " session_apps=" + sessionApps.length());
                     }
-                    
-                    post("/api/devices/" + serial + "/app_usage", usagePayload);
-                    log("App usage POST sent, apps=" + apps.length());
+
                 } catch (Exception e) {
                     log("App usage POST error: " + e.getMessage());
                 }
