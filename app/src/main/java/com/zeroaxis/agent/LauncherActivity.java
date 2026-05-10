@@ -99,6 +99,16 @@ public class LauncherActivity extends AppCompatActivity {
             applyPolicies();
 
             btnLogout.setOnClickListener(v -> logout());
+
+            Button btnSupport = findViewById(R.id.btnSupport);
+            btnSupport.setOnClickListener(v -> {
+                Intent intent = new Intent(LauncherActivity.this, SupportActivity.class);
+                intent.putExtra("username", currentUser);
+                intent.putExtra("device_serial", deviceSerial);
+                intent.putExtra("flask_url", flaskUrl);
+                startActivity(intent);
+            });
+
             if (isOemMode()) applyOemLockdown();
 
             // My Files button — opens this user's dedicated folder

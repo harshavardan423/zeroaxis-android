@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F5F7FA">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Report an Issue"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:textColor="#1a1a2e"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Describe your problem and submit it to your administrator."
+            android:textSize="13sp"
+            android:textColor="#6C757D"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="CATEGORY"
+            android:textSize="11sp"
+            android:textColor="#6C757D"
+            android:layout_marginBottom="6dp" />
+
+        <RadioGroup
+            android:id="@+id/rgCategory"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="16dp">
+
+            <RadioButton
+                android:id="@+id/rbHardware"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Hardware"
+                android:textColor="#1a1a2e"
+                android:layout_marginEnd="12dp" />
+
+            <RadioButton
+                android:id="@+id/rbSoftware"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Software"
+                android:textColor="#1a1a2e"
+                android:layout_marginEnd="12dp" />
+
+            <RadioButton
+                android:id="@+id/rbNetwork"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Network"
+                android:textColor="#1a1a2e"
+                android:layout_marginEnd="12dp" />
+
+            <RadioButton
+                android:id="@+id/rbOther"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Other"
+                android:textColor="#1a1a2e"
+                android:checked="true" />
+
+        </RadioGroup>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="DESCRIPTION"
+            android:textSize="11sp"
+            android:textColor="#6C757D"
+            android:layout_marginBottom="6dp" />
+
+        <EditText
+            android:id="@+id/etDescription"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Describe your issue…"
+            android:minLines="4"
+            android:gravity="top"
+            android:padding="12dp"
+            android:inputType="textMultiLine"
+            android:layout_marginBottom="12dp" />
+
+        <Button
+            android:id="@+id/btnSubmitTicket"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Submit Ticket"
+            android:backgroundTint="#2E86AB" />
+
+        <TextView
+            android:id="@+id/tvTicketStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#DEE2E6"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="20dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Feedback"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:textColor="#1a1a2e"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Active feedback forms from your administrator."
+            android:textSize="13sp"
+            android:textColor="#6C757D"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:id="@+id/tvFeedbackStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:textColor="#6C757D"
+            android:layout_marginBottom="8dp" />
+
+        <LinearLayout
+            android:id="@+id/feedbackContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+    </LinearLayout>
+</ScrollView>
