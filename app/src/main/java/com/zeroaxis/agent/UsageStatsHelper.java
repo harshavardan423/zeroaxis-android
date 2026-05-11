@@ -12,7 +12,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-import java.util.List;
 import java.io.File;
 
 public class UsageStatsHelper {
@@ -51,7 +50,6 @@ public class UsageStatsHelper {
         }
     }
 
-    // Snapshot of per-app foreground ms taken at session login
     private static java.util.Map<String, Long> sessionBaselineMs = new java.util.HashMap<>();
     private static long sessionBaselineTimestamp = 0;
 
@@ -82,8 +80,6 @@ public class UsageStatsHelper {
             if (fallback != null) statsMap.putAll(fallback);
         }
         sessionBaselineMs.clear();
-        // Build JSON and persist to SharedPreferences so the baseline
-        // survives process death and AgentService restart
         try {
             org.json.JSONObject json = new org.json.JSONObject();
             for (Map.Entry<String, UsageStats> entry : statsMap.entrySet()) {
@@ -104,8 +100,6 @@ public class UsageStatsHelper {
     }
 
     public static java.util.Map<String, Long> getSessionBaselineMs(Context context) {
-        // If in-memory baseline is empty (process was killed and restarted),
-        // reload from SharedPreferences
         if (sessionBaselineMs.isEmpty()) {
             try {
                 String saved = context.getSharedPreferences("zeroaxis", Context.MODE_PRIVATE)
@@ -117,7 +111,7 @@ public class UsageStatsHelper {
                         String pkg = keys.next();
                         sessionBaselineMs.put(pkg, json.getLong(pkg));
                     }
-                    log(context, "getSessionBaselineMs: reloaded " + sessionBaselineMs.size() + " apps from prefs after process restart");
+                    log(context, "getSessionBaselineMs: reloaded " + sessionBaselineMs.size() + " apps from prefs");
                 }
             } catch (Exception e) {
                 log(context, "getSessionBaselineMs reload error: " + e.getMessage());
@@ -134,7 +128,7 @@ public class UsageStatsHelper {
                 .remove("session_baseline")
                 .remove("session_baseline_ts")
                 .apply();
-        log(context, "clearSessionBaseline: cleared in-memory and persisted baseline");
+        log(context, "clearSessionBaseline: cleared");
     }
 
     public static List<AppUsage> getTodayUsage(Context context) {
@@ -153,10 +147,8 @@ public class UsageStatsHelper {
         cal.set(Calendar.SECOND, 0);
         cal.set(Calendar.MILLISECOND, 0);
         long startOfDay = cal.getTimeInMillis();
-        long now        = System.currentTimeMillis();
+        long now = System.currentTimeMillis();
 
-        // Use INTERVAL_DAILY for accurate today-only totals (matches Digital Wellbeing)
-        // queryAndAggregateUsageStats can bleed in historical data on some OEMs
         List<UsageStats> dailyList = usm.queryUsageStats(
                 UsageStatsManager.INTERVAL_DAILY, startOfDay, now);
         Map<String, UsageStats> statsMap = new java.util.HashMap<>();
@@ -169,7 +161,6 @@ public class UsageStatsHelper {
                 }
             }
         }
-        // Fallback to aggregate if daily query returned nothing
         if (statsMap.isEmpty()) {
             Map<String, UsageStats> fallback = usm.queryAndAggregateUsageStats(startOfDay, now);
             if (fallback != null) statsMap.putAll(fallback);
@@ -178,14 +169,12 @@ public class UsageStatsHelper {
 
         for (Map.Entry<String, UsageStats> entry : statsMap.entrySet()) {
             String pkg = entry.getKey();
-            long   ms  = entry.getValue().getTotalTimeInForeground();
-            if (ms < 60_000) continue;
+            long ms = entry.getValue().getTotalTimeInForeground();
+            if (ms < 60000) continue;
 
-            // Skip system apps unless they are common browsers/productivity apps
             try {
                 ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
                 if ((ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0) {
-                    // Allow certain useful system apps
                     java.util.Set<String> allowedSystem = new java.util.HashSet<>(java.util.Arrays.asList(
                         "com.android.chrome",
                         "com.google.android.youtube",
@@ -202,8 +191,7 @@ public class UsageStatsHelper {
 
             String appName = pkg;
             try {
-                appName = pm.getApplicationLabel(
-                        pm.getApplicationInfo(pkg, 0)).toString();
+                appName = pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString();
             } catch (Exception ignored) {}
 
             int mins = (int) TimeUnit.MILLISECONDS.toMinutes(ms);
@@ -212,6 +200,41 @@ public class UsageStatsHelper {
 
         Collections.sort(result, (a, b) -> b.foregroundMins - a.foregroundMins);
         log(context, "getTodayUsage: found " + result.size() + " apps");
+        return result;
+    }
+
+    public static List<AppUsage> getUsageSince(Context context, long sinceTimestamp) {
+        List<AppUsage> result = new ArrayList<>();
+        if (!hasPermission(context)) return result;
+        
+        UsageStatsManager usm = (UsageStatsManager) context.getSystemService(Context.USAGE_STATS_SERVICE);
+        long now = System.currentTimeMillis();
+        
+        List<UsageStats> stats = usm.queryUsageStats(UsageStatsManager.INTERVAL_BEST, sinceTimestamp, now);
+        Map<String, Long> statsMap = new java.util.HashMap<>();
+        
+        if (stats != null) {
+            for (UsageStats s : stats) {
+                String pkg = s.getPackageName();
+                long ms = s.getTotalTimeInForeground();
+                if (statsMap.containsKey(pkg)) {
+                    statsMap.put(pkg, statsMap.get(pkg) + ms);
+                } else {
+                    statsMap.put(pkg, ms);
+                }
+            }
+        }
+        
+        PackageManager pm = context.getPackageManager();
+        for (Map.Entry<String, Long> entry : statsMap.entrySet()) {
+            long ms = entry.getValue();
+            if (ms < 60000) continue;
+            String appName = entry.getKey();
+            try {
+                appName = pm.getApplicationLabel(pm.getApplicationInfo(entry.getKey(), 0)).toString();
+            } catch (Exception e) {}
+            result.add(new AppUsage(entry.getKey(), appName, (int) TimeUnit.MILLISECONDS.toMinutes(ms)));
+        }
         return result;
     }
 
@@ -229,7 +252,6 @@ public class UsageStatsHelper {
     public static List<AppInfo> getInstalledApps(Context context) {
         List<AppInfo> result = new ArrayList<>();
         PackageManager pm = context.getPackageManager();
-        // Removed FLAG_SYSTEM filter – now includes all apps (including system)
         for (ApplicationInfo ai : pm.getInstalledApplications(PackageManager.GET_META_DATA)) {
             String label = pm.getApplicationLabel(ai).toString();
             String version = "";

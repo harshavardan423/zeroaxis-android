@@ -257,7 +257,15 @@ public class AgentService extends Service {
             int screenTime = 0;
             List<UsageStatsHelper.AppUsage> usage = null;
             try {
-                usage = UsageStatsHelper.getTodayUsage(this);
+                String loggedInUserCheck = getSharedPreferences("zeroaxis", MODE_PRIVATE).getString("logged_in_user", null);
+                long baselineTs = getSharedPreferences("zeroaxis", MODE_PRIVATE).getLong("session_baseline_ts", 0);
+                
+                if (loggedInUserCheck != null && baselineTs > 0) {
+                    usage = UsageStatsHelper.getUsageSince(this, baselineTs);
+                } else {
+                    usage = UsageStatsHelper.getTodayUsage(this);
+                }
+                
                 for (UsageStatsHelper.AppUsage a : usage) screenTime += a.foregroundMins;
                 log("screenTime=" + screenTime + " apps=" + usage.size());
             } catch (Exception e) {
