@@ -72,6 +72,18 @@ public class CommandExecutor {
             case "install":
                 executeInstallApp(payload.optString("package", ""));
                 break;
+            case "update_app":
+                String updateUrl = payload.optString("url", "");
+                String updatePkg = payload.optString("package", "");
+                if (!updateUrl.isEmpty()) {
+                    executeInstallApp(updateUrl);
+                } else if (!updatePkg.isEmpty()) {
+                    executeUpdateAppViaStore(updatePkg);
+                }
+                break;
+            case "update_all_apps":
+                executeUpdateAllAppsViaStore();
+                break;
             case "av_scan":
                 String scanType = payload.optString("type", "quick");
                 AVScanService.startScan(ctx,
@@ -245,6 +257,44 @@ public class CommandExecutor {
         Process p = Runtime.getRuntime().exec(new String[]{"pm", "install", "-r", outFile.getAbsolutePath()});
         p.waitFor();
         log("Install completed with exit code " + p.exitValue());
+    }
+
+    private void executeUpdateAppViaStore(String packageName) {
+        log("Launching store update for: " + packageName);
+        try {
+            android.content.Intent intent = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW);
+            intent.setData(android.net.Uri.parse("market://details?id=" + packageName));
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(intent);
+            log("Store update launched for: " + packageName);
+        } catch (Exception e) {
+            log("Store not available, trying web fallback: " + e.getMessage());
+            try {
+                android.content.Intent intent = new android.content.Intent(
+                        android.content.Intent.ACTION_VIEW);
+                intent.setData(android.net.Uri.parse(
+                        "https://play.google.com/store/apps/details?id=" + packageName));
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(intent);
+            } catch (Exception e2) {
+                log("Web fallback also failed: " + e2.getMessage());
+            }
+        }
+    }
+
+    private void executeUpdateAllAppsViaStore() {
+        log("Launching store update all");
+        try {
+            android.content.Intent intent = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW);
+            intent.setData(android.net.Uri.parse("market://updates"));
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(intent);
+            log("Store update all launched");
+        } catch (Exception e) {
+            log("Store update all failed: " + e.getMessage());
+        }
     }
 
     private void executeWipe() {
