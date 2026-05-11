@@ -218,7 +218,7 @@ public class LauncherActivity extends AppCompatActivity {
 
     private void loadUsedToday() {
         Calendar cal = Calendar.getInstance();
-        todayDate = cal.get(Calendar.YEAR) + "-" + (cal.get(Calendar.MONTH)+1) + "-" + cal.get(Calendar.DAY_OF_MONTH);
+        todayDate = String.format("%04d-%02d-%02d", cal.get(Calendar.YEAR), cal.get(Calendar.MONTH)+1, cal.get(Calendar.DAY_OF_MONTH));
         SharedPreferences prefs = getSharedPreferences("zeroaxis", MODE_PRIVATE);
         usedToday = prefs.getInt("screen_time_used_" + currentUser + "_" + todayDate, 0);
     }
@@ -390,7 +390,7 @@ public class LauncherActivity extends AppCompatActivity {
     private void updateScreenTime() {
         try {
             Calendar cal = Calendar.getInstance();
-            String newDate = cal.get(Calendar.YEAR) + "-" + (cal.get(Calendar.MONTH)+1) + "-" + cal.get(Calendar.DAY_OF_MONTH);
+            String newDate = String.format("%04d-%02d-%02d", cal.get(Calendar.YEAR), cal.get(Calendar.MONTH)+1, cal.get(Calendar.DAY_OF_MONTH));
             if (!newDate.equals(todayDate)) {
                 todayDate = newDate;
                 usedToday = 0;
