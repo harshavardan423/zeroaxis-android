@@ -37,6 +37,12 @@ public class LoginActivity extends AppCompatActivity {
         progressBar = findViewById(R.id.progressBar);
         tvStatus = findViewById(R.id.tvStatus);
 
+        // If this activity was started just to close itself, finish immediately before any other work
+        if (getIntent().getBooleanExtra("finish_only", false)) {
+            finish();
+            return;
+        }
+
         flaskUrl = loadFlaskUrl();
         deviceSerial = getSharedPreferences("zeroaxis", MODE_PRIVATE).getString("serial", null);
         if (deviceSerial == null) {

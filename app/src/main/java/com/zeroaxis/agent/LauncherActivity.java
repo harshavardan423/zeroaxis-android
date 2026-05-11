@@ -74,15 +74,29 @@ public class LauncherActivity extends AppCompatActivity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        // Called when returning to this singleTask activity — do NOT re-run onCreate logic
-        // Just re-check screen time and curfew without touching login state
-        if (currentUser != null) {
+        // Reload user from preferences (in case the activity was destroyed)
+        SharedPreferences prefs = getSharedPreferences("zeroaxis", MODE_PRIVATE);
+        String storedUser = prefs.getString("logged_in_user", null);
+        if (storedUser == null) {
+            // No active session – go to login
+            Intent loginIntent = new Intent(this, LoginActivity.class);
+            loginIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(loginIntent);
+            finish();
+            return;
+        }
+        if (currentUser == null) {
+            currentUser = storedUser;
+            loadPolicies();
             loadUsedToday();
-            if (isCurfewActive()) {
-                showCurfewDialog();
-            } else if (dailyLimit > 0 && usedToday >= dailyLimit) {
-                showScreenTimeExceededDialog();
-            }
+            applyPolicies();
+        }
+        // Re-check screen time and curfew
+        loadUsedToday();
+        if (isCurfewActive()) {
+            showCurfewDialog();
+        } else if (dailyLimit > 0 && usedToday >= dailyLimit) {
+            showScreenTimeExceededDialog();
         }
     }
 
@@ -103,9 +117,14 @@ public class LauncherActivity extends AppCompatActivity {
 
             flaskUrl = loadFlaskUrl();
             deviceSerial = getSharedPreferences("zeroaxis", MODE_PRIVATE).getString("serial", null);
-            currentUser = getSharedPreferences("zeroaxis", MODE_PRIVATE).getString("logged_in_user", null);
+            SharedPreferences prefs = getSharedPreferences("zeroaxis", MODE_PRIVATE);
+            currentUser = prefs.getString("logged_in_user", null);
             if (currentUser == null) {
-                logout();
+                // No user – go to login and finish this activity
+                Intent intent = new Intent(this, LoginActivity.class);
+                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                startActivity(intent);
+                finish();
                 return;
             }
 

@@ -42,11 +42,13 @@ public class UsageStatsHelper {
         public String packageName;
         public String appName;
         public int    foregroundMins;
+        public long   foregroundMs;  // raw milliseconds, avoids precision loss
 
-        AppUsage(String pkg, String name, int mins) {
-            packageName   = pkg;
-            appName       = name;
+        AppUsage(String pkg, String name, int mins, long ms) {
+            packageName    = pkg;
+            appName        = name;
             foregroundMins = mins;
+            foregroundMs   = ms;
         }
     }
 
@@ -195,7 +197,7 @@ public class UsageStatsHelper {
             } catch (Exception ignored) {}
 
             int mins = (int) TimeUnit.MILLISECONDS.toMinutes(ms);
-            result.add(new AppUsage(pkg, appName, mins));
+            result.add(new AppUsage(pkg, appName, mins, ms));
         }
 
         Collections.sort(result, (a, b) -> b.foregroundMins - a.foregroundMins);
@@ -233,7 +235,7 @@ public class UsageStatsHelper {
             try {
                 appName = pm.getApplicationLabel(pm.getApplicationInfo(entry.getKey(), 0)).toString();
             } catch (Exception e) {}
-            result.add(new AppUsage(entry.getKey(), appName, (int) TimeUnit.MILLISECONDS.toMinutes(ms)));
+            result.add(new AppUsage(entry.getKey(), appName, (int) TimeUnit.MILLISECONDS.toMinutes(ms), ms));
         }
         return result;
     }
@@ -261,6 +263,36 @@ public class UsageStatsHelper {
         Collections.sort(result, (a, b) -> a.appName.compareToIgnoreCase(b.appName));
         log(context, "getInstalledApps: found " + result.size() + " apps");
         return result;
+    }
+
+    public static long getRawForegroundMs(Context context, String packageName) {
+        if (!hasPermission(context)) return 0L;
+        UsageStatsManager usm = (UsageStatsManager)
+                context.getSystemService(Context.USAGE_STATS_SERVICE);
+        Calendar cal = Calendar.getInstance();
+        cal.set(Calendar.HOUR_OF_DAY, 0);
+        cal.set(Calendar.MINUTE, 0);
+        cal.set(Calendar.SECOND, 0);
+        cal.set(Calendar.MILLISECOND, 0);
+        long startOfDay = cal.getTimeInMillis();
+        long now = System.currentTimeMillis();
+        List<UsageStats> list = usm.queryUsageStats(
+                UsageStatsManager.INTERVAL_DAILY, startOfDay, now);
+        long maxMs = 0;
+        if (list != null) {
+            for (UsageStats s : list) {
+                if (packageName.equals(s.getPackageName())) {
+                    maxMs = Math.max(maxMs, s.getTotalTimeInForeground());
+                }
+            }
+        }
+        if (maxMs == 0) {
+            Map<String, UsageStats> agg = usm.queryAndAggregateUsageStats(startOfDay, now);
+            if (agg != null && agg.containsKey(packageName)) {
+                maxMs = agg.get(packageName).getTotalTimeInForeground();
+            }
+        }
+        return maxMs;
     }
 
     public static boolean hasPermission(Context context) {

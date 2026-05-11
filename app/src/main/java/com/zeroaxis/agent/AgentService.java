@@ -334,7 +334,8 @@ public class AgentService extends Service {
                         for (UsageStatsHelper.AppUsage a : usage) {
                             long baseMs = baseline.containsKey(a.packageName)
                                     ? baseline.get(a.packageName) : 0L;
-                            long totalMs = (long) a.foregroundMins * 60 * 1000;
+                            // Use raw ms already stored in AppUsage — no extra queryUsageStats call
+                            long totalMs = a.foregroundMs > 0 ? a.foregroundMs : (long) a.foregroundMins * 60 * 1000;
                             long sessionMs = Math.max(0, totalMs - baseMs);
                             int sessionMins = (int) java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(sessionMs);
                             if (sessionMins > 0) {
