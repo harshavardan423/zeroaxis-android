@@ -330,14 +330,23 @@ public class AgentService extends Service {
 
                     // POST 2: session-relative usage for end-user attribution (only if logged in)
                     if (loggedInUser != null) {
-                        java.util.Map<String, Long> baseline = UsageStatsHelper.getSessionBaselineMs(this);
+                        long baselineTs = getSharedPreferences("zeroaxis", MODE_PRIVATE).getLong("session_baseline_ts", 0);
+                        boolean isSessionRelative = (baselineTs > 0);
+                        
                         JSONArray sessionApps = new JSONArray();
                         for (UsageStatsHelper.AppUsage a : usage) {
-                            long baseMs = baseline.containsKey(a.packageName)
-                                    ? baseline.get(a.packageName) : 0L;
-                            long totalMs = (long) a.foregroundMins * 60 * 1000;
-                            long sessionMs = Math.max(0, totalMs - baseMs);
-                            int sessionMins = (int) java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(sessionMs);
+                            int sessionMins;
+                            if (isSessionRelative) {
+                                // getUsageSince already returns minutes since login
+                                sessionMins = a.foregroundMins;
+                            } else {
+                                java.util.Map<String, Long> baseline = UsageStatsHelper.getSessionBaselineMs(this);
+                                long baseMs = baseline.containsKey(a.packageName)
+                                        ? baseline.get(a.packageName) : 0L;
+                                long totalMs = (long) a.foregroundMins * 60 * 1000;
+                                long sessionMs = Math.max(0, totalMs - baseMs);
+                                sessionMins = (int) java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(sessionMs);
+                            }
                             if (sessionMins > 0) {
                                 JSONObject obj = new JSONObject();
                                 obj.put("package_name", a.packageName);
