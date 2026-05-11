@@ -452,7 +452,7 @@ public class LauncherActivity extends AppCompatActivity {
             @Override public void onFailure(Call call, IOException e) {}
             @Override public void onResponse(Call call, Response response) throws IOException { response.close(); }
         });
-        UsageStatsHelper.clearSessionBaseline();
+        UsageStatsHelper.clearSessionBaseline(this);
         getSharedPreferences("zeroaxis", MODE_PRIVATE).edit()
                 .remove("logged_in_user")
                 .remove("user_policies")

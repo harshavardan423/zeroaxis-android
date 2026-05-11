@@ -322,7 +322,7 @@ public class AgentService extends Service {
 
                     // POST 2: session-relative usage for end-user attribution (only if logged in)
                     if (loggedInUser != null) {
-                        java.util.Map<String, Long> baseline = UsageStatsHelper.getSessionBaselineMs();
+                        java.util.Map<String, Long> baseline = UsageStatsHelper.getSessionBaselineMs(this);
                         JSONArray sessionApps = new JSONArray();
                         for (UsageStatsHelper.AppUsage a : usage) {
                             long baseMs = baseline.containsKey(a.packageName)

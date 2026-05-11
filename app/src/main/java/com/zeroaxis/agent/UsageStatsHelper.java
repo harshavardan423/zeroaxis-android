@@ -82,20 +82,59 @@ public class UsageStatsHelper {
             if (fallback != null) statsMap.putAll(fallback);
         }
         sessionBaselineMs.clear();
-        for (Map.Entry<String, UsageStats> entry : statsMap.entrySet()) {
-            sessionBaselineMs.put(entry.getKey(), entry.getValue().getTotalTimeInForeground());
+        // Build JSON and persist to SharedPreferences so the baseline
+        // survives process death and AgentService restart
+        try {
+            org.json.JSONObject json = new org.json.JSONObject();
+            for (Map.Entry<String, UsageStats> entry : statsMap.entrySet()) {
+                long ms = entry.getValue().getTotalTimeInForeground();
+                sessionBaselineMs.put(entry.getKey(), ms);
+                json.put(entry.getKey(), ms);
+            }
+            context.getSharedPreferences("zeroaxis", Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("session_baseline", json.toString())
+                    .putLong("session_baseline_ts", now)
+                    .apply();
+        } catch (Exception e) {
+            log(context, "recordSessionBaseline persist error: " + e.getMessage());
         }
         sessionBaselineTimestamp = now;
         log(context, "recordSessionBaseline: snapshotted " + sessionBaselineMs.size() + " apps at " + now);
     }
 
-    public static java.util.Map<String, Long> getSessionBaselineMs() {
+    public static java.util.Map<String, Long> getSessionBaselineMs(Context context) {
+        // If in-memory baseline is empty (process was killed and restarted),
+        // reload from SharedPreferences
+        if (sessionBaselineMs.isEmpty()) {
+            try {
+                String saved = context.getSharedPreferences("zeroaxis", Context.MODE_PRIVATE)
+                        .getString("session_baseline", null);
+                if (saved != null) {
+                    org.json.JSONObject json = new org.json.JSONObject(saved);
+                    java.util.Iterator<String> keys = json.keys();
+                    while (keys.hasNext()) {
+                        String pkg = keys.next();
+                        sessionBaselineMs.put(pkg, json.getLong(pkg));
+                    }
+                    log(context, "getSessionBaselineMs: reloaded " + sessionBaselineMs.size() + " apps from prefs after process restart");
+                }
+            } catch (Exception e) {
+                log(context, "getSessionBaselineMs reload error: " + e.getMessage());
+            }
+        }
         return sessionBaselineMs;
     }
 
-    public static void clearSessionBaseline() {
+    public static void clearSessionBaseline(Context context) {
         sessionBaselineMs.clear();
         sessionBaselineTimestamp = 0;
+        context.getSharedPreferences("zeroaxis", Context.MODE_PRIVATE)
+                .edit()
+                .remove("session_baseline")
+                .remove("session_baseline_ts")
+                .apply();
+        log(context, "clearSessionBaseline: cleared in-memory and persisted baseline");
     }
 
     public static List<AppUsage> getTodayUsage(Context context) {
