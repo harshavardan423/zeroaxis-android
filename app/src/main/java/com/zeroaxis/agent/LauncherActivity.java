@@ -72,6 +72,21 @@ public class LauncherActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        // Called when returning to this singleTask activity — do NOT re-run onCreate logic
+        // Just re-check screen time and curfew without touching login state
+        if (currentUser != null) {
+            loadUsedToday();
+            if (isCurfewActive()) {
+                showCurfewDialog();
+            } else if (dailyLimit > 0 && usedToday >= dailyLimit) {
+                showScreenTimeExceededDialog();
+            }
+        }
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         try {
@@ -136,7 +151,7 @@ public class LauncherActivity extends AppCompatActivity {
                 syncPolicies();
                 handler.postDelayed(policySyncRunnable, 15 * 60 * 1000);
             };
-            handler.post(policySyncRunnable);
+            handler.postDelayed(policySyncRunnable, 15 * 60 * 1000); // delay first sync, don't run immediately on create
 
             screenTimeUpdateRunnable = () -> {
                 updateScreenTime();
@@ -437,6 +452,7 @@ public class LauncherActivity extends AppCompatActivity {
     }
 
     private void logout() {
+        logToFile("LOGOUT CALLED FROM: " + android.util.Log.getStackTraceString(new Exception()));
         saveUsedToday();
 
         JSONObject payload = new JSONObject();

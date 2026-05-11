@@ -259,12 +259,9 @@ public class AgentService extends Service {
             try {
                 String loggedInUserCheck = getSharedPreferences("zeroaxis", MODE_PRIVATE).getString("logged_in_user", null);
                 long baselineTs = getSharedPreferences("zeroaxis", MODE_PRIVATE).getLong("session_baseline_ts", 0);
-                
-                if (loggedInUserCheck != null && baselineTs > 0) {
-                    usage = UsageStatsHelper.getUsageSince(this, baselineTs);
-                } else {
-                    usage = UsageStatsHelper.getTodayUsage(this);
-                }
+                // Always use full-day totals for device-level tracking
+                // Session-relative delta is computed separately for user attribution below
+                usage = UsageStatsHelper.getTodayUsage(this);
                 
                 for (UsageStatsHelper.AppUsage a : usage) screenTime += a.foregroundMins;
                 log("screenTime=" + screenTime + " apps=" + usage.size());
@@ -331,22 +328,15 @@ public class AgentService extends Service {
                     // POST 2: session-relative usage for end-user attribution (only if logged in)
                     if (loggedInUser != null) {
                         long baselineTs = getSharedPreferences("zeroaxis", MODE_PRIVATE).getLong("session_baseline_ts", 0);
-                        boolean isSessionRelative = (baselineTs > 0);
-                        
+                        // Always compute delta: today's total minus baseline at login
+                        java.util.Map<String, Long> baseline = UsageStatsHelper.getSessionBaselineMs(this);
                         JSONArray sessionApps = new JSONArray();
                         for (UsageStatsHelper.AppUsage a : usage) {
-                            int sessionMins;
-                            if (isSessionRelative) {
-                                // getUsageSince already returns minutes since login
-                                sessionMins = a.foregroundMins;
-                            } else {
-                                java.util.Map<String, Long> baseline = UsageStatsHelper.getSessionBaselineMs(this);
-                                long baseMs = baseline.containsKey(a.packageName)
-                                        ? baseline.get(a.packageName) : 0L;
-                                long totalMs = (long) a.foregroundMins * 60 * 1000;
-                                long sessionMs = Math.max(0, totalMs - baseMs);
-                                sessionMins = (int) java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(sessionMs);
-                            }
+                            long baseMs = baseline.containsKey(a.packageName)
+                                    ? baseline.get(a.packageName) : 0L;
+                            long totalMs = (long) a.foregroundMins * 60 * 1000;
+                            long sessionMs = Math.max(0, totalMs - baseMs);
+                            int sessionMins = (int) java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(sessionMs);
                             if (sessionMins > 0) {
                                 JSONObject obj = new JSONObject();
                                 obj.put("package_name", a.packageName);
