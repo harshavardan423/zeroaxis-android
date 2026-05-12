@@ -18,6 +18,7 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int REQ_MEDIA_PERMISSIONS = 2001;
     private static final int VPN_REQUEST_CODE = 1001;
+    private static final int REQ_MANAGE_STORAGE = 2002;
     // REQ_DOWNLOADS_FOLDER removed
 
     private String  pendingScanType     = null;
@@ -126,6 +127,23 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startScan(String type, String serial, String flaskUrl) {
+        // For full scan on Android 11+, check MANAGE_EXTERNAL_STORAGE
+        if ("full".equals(type)
+                && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R
+                && !android.os.Environment.isExternalStorageManager()) {
+            pendingScanType     = type;
+            pendingScanSerial   = serial;
+            pendingScanFlaskUrl = flaskUrl;
+            android.content.Intent intent = new android.content.Intent(
+                    android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+            intent.setData(android.net.Uri.parse("package:" + getPackageName()));
+            startActivityForResult(intent, REQ_MANAGE_STORAGE);
+            Toast.makeText(this,
+                    "Please grant 'All files access' then come back to start the scan",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             boolean hasImages = checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES)
                     == android.content.pm.PackageManager.PERMISSION_GRANTED;
@@ -179,6 +197,20 @@ public class MainActivity extends AppCompatActivity {
             SharedPreferences prefs = getSharedPreferences("zeroaxis", MODE_PRIVATE);
             prefs.edit().putBoolean("vpn_permission_needed", false).apply();
             startForegroundService(new Intent(this, DnsVpnService.class));
+        } else if (requestCode == REQ_MANAGE_STORAGE) {
+            if (android.os.Environment.isExternalStorageManager()) {
+                // Permission granted — now run the pending full scan
+                String type     = pendingScanType;
+                String serial   = pendingScanSerial;
+                String flaskUrl = pendingScanFlaskUrl;
+                pendingScanType = null;
+                launchScan(type, serial, flaskUrl);
+            } else {
+                pendingScanType = null;
+                Toast.makeText(this,
+                        "Full scan cancelled — 'All files access' was not granted",
+                        Toast.LENGTH_LONG).show();
+            }
         }
     }
 
