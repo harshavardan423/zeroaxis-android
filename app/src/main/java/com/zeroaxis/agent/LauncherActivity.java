@@ -71,6 +71,8 @@ public class LauncherActivity extends AppCompatActivity {
         } catch (Exception e) { }
     }
 
+    
+
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
@@ -88,6 +90,12 @@ public class LauncherActivity extends AppCompatActivity {
         if (currentUser == null) {
             currentUser = storedUser;
             loadPolicies();
+            // Each onCreate = new login session; reset per-session screen time counter
+            Calendar cal = Calendar.getInstance();
+            todayDate = String.format("%04d-%02d-%02d",
+                    cal.get(Calendar.YEAR), cal.get(Calendar.MONTH)+1, cal.get(Calendar.DAY_OF_MONTH));
+            usedToday = 0;
+            saveUsedToday();
             loadUsedToday();
             applyPolicies();
         }
@@ -129,6 +137,12 @@ public class LauncherActivity extends AppCompatActivity {
             }
 
             loadPolicies();
+            // Each onCreate = new login session; reset per-session screen time counter
+            Calendar cal = Calendar.getInstance();
+            todayDate = String.format("%04d-%02d-%02d",
+                    cal.get(Calendar.YEAR), cal.get(Calendar.MONTH)+1, cal.get(Calendar.DAY_OF_MONTH));
+            usedToday = 0;
+            saveUsedToday();
             loadUsedToday();
             applyPolicies();
 
